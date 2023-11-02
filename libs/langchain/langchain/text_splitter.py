@@ -484,15 +484,6 @@ class MarkdownHeaderTextSplitter:
             ]
 
 
-class ElementType(TypedDict):
-    """Element type as typed dict."""
-
-    url: str
-    xpath: str
-    content: str
-    metadata: Dict[str, str]
-
-
 class HTMLHeaderTextSplitter:
     """
     Splitting HTML files based on specified headers.
@@ -505,7 +496,7 @@ class HTMLHeaderTextSplitter:
         return_each_element: bool = False,
     ):
         """Create a new HTMLHeaderTextSplitter.
-
+        
         Args:
             headers_to_split_on: list of tuples of headers we want to track mapped to
                 (arbitrary) keys for metadata. Allowed header values: h1, h2, h3, h4,
@@ -514,128 +505,57 @@ class HTMLHeaderTextSplitter:
         """
         # Output element-by-element or aggregated into chunks w/ common headers
         self.return_each_element = return_each_element
-        self.headers_to_split_on = sorted(headers_to_split_on)
+        self.header_mapping: Dict[str, str] = dict(sorted(headers_to_split_on))
 
-    def aggregate_elements_to_chunks(
-        self, elements: List[ElementType]
-    ) -> List[Document]:
-        """Combine elements with common metadata into chunks
-
+    def aggregate_chunks_by_metadata(
+        self, chunks: Iterable[dict]
+    ) -> Generator[dict]:
+        """Combine adjacent chunks with common metadata
+        
         Args:
-            elements: HTML element content with associated identifying info and metadata
+            chunks: HTML element content with associated identifying info and metadata
         """
-        aggregated_chunks: List[ElementType] = []
+        prior_chunk: dict = None
 
-        for element in elements:
-            if (
-                aggregated_chunks
-                and aggregated_chunks[-1]["metadata"] == element["metadata"]
-            ):
-                # If the last element in the aggregated list
-                # has the same metadata as the current element,
-                # append the current content to the last element's content
-                aggregated_chunks[-1]["content"] += "  \n" + element["content"]
+        for chunk in chunks:
+            if prior_chunk and prior_chunk["meta"] == chunk["metadata"]:
+                # If the last chunk in the aggregated list
+                # has the same metadata as the current chunk,
+                # append the current text to the last chunk's text
+                current_chunk["text"] += "\n  " + chunk["text"]
             else:
-                # Otherwise, append the current element to the aggregated list
-                aggregated_chunks.append(element)
-
-        return [
-            Document(page_content=chunk["content"], metadata=chunk["metadata"])
-            for chunk in aggregated_chunks
-        ]
-
-    def split_text_from_url(self, url: str) -> List[Document]:
-        """Split HTML from web URL
-
-        Args:
-            url: web URL
-        """
-        r = requests.get(url)
-        return self.split_text_from_file(BytesIO(r.content))
+                # Otherwise, yield the prior chunk, and store this new one
+                if current_chunk:
+                    yield current_chunk
+                current_chunk = chunk.copy() # copy to avoid modifying original chunk text
 
     def split_text(self, text: str) -> List[Document]:
         """Split HTML text string
-
+        
         Args:
             text: HTML text
         """
-        return self.split_text_from_file(StringIO(text))
+        return list(self.split_text_from_source(StringIO(text)))
 
-    def split_text_from_file(self, file: Any) -> List[Document]:
+    def split_text_from_source(self, source: Any) -> Generator[Document]:
         """Split HTML file
-
+        
         Args:
-            file: HTML file
+            source: a URL (string), a file location (string), or a StringIO containing HTML
         """
-        try:
-            from lxml import etree
-        except ImportError as e:
-            raise ImportError(
-                "Unable to import lxml, please install with `pip install lxml`."
-            ) from e
-        # use lxml library to parse html document and return xml ElementTree
-        parser = etree.HTMLParser()
-        tree = etree.parse(file, parser)
-
-        # document transformation for "structure-aware" chunking is handled with xsl.
-        # see comments in html_chunks_with_headers.xslt for more detailed information.
-        xslt_path = (
-            pathlib.Path(__file__).parent
-            / "document_transformers/xsl/html_chunks_with_headers.xslt"
-        )
-        xslt_tree = etree.parse(xslt_path)
-        transform = etree.XSLT(xslt_tree)
-        result = transform(tree)
-        result_dom = etree.fromstring(str(result))
-
-        # create filter and mapping for header metadata
-        header_filter = [header[0] for header in self.headers_to_split_on]
-        header_mapping = dict(self.headers_to_split_on)
-
-        # map xhtml namespace prefix
-        ns_map = {"h": "http://www.w3.org/1999/xhtml"}
-
-        # build list of elements from DOM
-        elements = []
-        for element in result_dom.findall("*//*", ns_map):
-            if element.findall("*[@class='headers']") or element.findall(
-                "*[@class='chunk']"
-            ):
-                elements.append(
-                    ElementType(
-                        url=file,
-                        xpath="".join(
-                            [
-                                node.text
-                                for node in element.findall("*[@class='xpath']", ns_map)
-                            ]
-                        ),
-                        content="".join(
-                            [
-                                node.text
-                                for node in element.findall("*[@class='chunk']", ns_map)
-                            ]
-                        ),
-                        metadata={
-                            # Add text of specified headers to metadata using header
-                            # mapping.
-                            header_mapping[node.tag]: node.text
-                            for node in filter(
-                                lambda x: x.tag in header_filter,
-                                element.findall("*[@class='headers']/*", ns_map),
-                            )
-                        },
-                    )
-                )
-
-        if not self.return_each_element:
-            return self.aggregate_elements_to_chunks(elements)
-        else:
-            return [
-                Document(page_content=chunk["content"], metadata=chunk["metadata"])
-                for chunk in elements
-            ]
-
+        
+        from langchain.text_splitters.html_chunker import HtmlChunker
+        
+        chunker = HtmlChunker(self, header_mapping.keys())
+        q = chunker.parseQueue(source, True)
+        if not return_each_element:
+            q = self.aggregate_chunks_by_metadata(q)
+        
+        for chunk in q:
+            yield Document(
+                page_content=chunk["text"],
+                metadata={self.header_mapping[key.split(" ")[-1]]:val for key,val in chunk["meta"]}
+            )
 
 # should be in newer Python versions (3.10+)
 # @dataclass(frozen=True, kw_only=True, slots=True)
