@@ -484,29 +484,29 @@ class MarkdownHeaderTextSplitter:
             ]
 
 
-DEFAULT_HEADER_MAPPING = [
-    ("h1", "article_main_heading_h1"),
+DEFAULT_HEADER_MAPPING = {
+    "h1": "article_main_heading_h1",
     
-    ("h2", "article_subsection_heading_h2"),
-    ("h3", "article_subsection_heading_h3"),
-    ("h4", "article_subsection_heading_h4"),
-    ("h5", "article_subsection_heading_h5"),
-    ("h6", "article_subsection_heading_h6"),
+    "h2": "article_subsection_heading_h2",
+    "h3": "article_subsection_heading_h3",
+    "h4": "article_subsection_heading_h4",
+    "h5": "article_subsection_heading_h5",
+    "h6": "article_subsection_heading_h6",
     
-    ("D2 h1", "sub_article_subsection_heading_h07"),
-    ("D2 h2", "sub_article_subsection_heading_h08"),
-    ("D2 h3", "sub_article_subsection_heading_h09"),
-    ("D2 h4", "sub_article_subsection_heading_h10"),
-    ("D2 h5", "sub_article_subsection_heading_h11"),
-    ("D2 h6", "sub_article_subsection_heading_h12"),
+    "D2 h1": "sub_article_subsection_heading_h07",
+    "D2 h2": "sub_article_subsection_heading_h08",
+    "D2 h3": "sub_article_subsection_heading_h09",
+    "D2 h4": "sub_article_subsection_heading_h10",
+    "D2 h5": "sub_article_subsection_heading_h11",
+    "D2 h6": "sub_article_subsection_heading_h12",
     
-    ("D3 h1", "sub_sub_article_subsection_heading_h13"),
-    ("D3 h2", "sub_sub_article_subsection_heading_h14"),
-    ("D3 h3", "sub_sub_article_subsection_heading_h15"),
-    ("D3 h4", "sub_sub_article_subsection_heading_h16"),
-    ("D3 h5", "sub_sub_article_subsection_heading_h17"),
-    ("D3 h6", "sub_sub_article_subsection_heading_h18")]
-
+    "D3 h1": "sub_sub_article_subsection_heading_h13",
+    "D3 h2": "sub_sub_article_subsection_heading_h14",
+    "D3 h3": "sub_sub_article_subsection_heading_h15",
+    "D3 h4": "sub_sub_article_subsection_heading_h16",
+    "D3 h5": "sub_sub_article_subsection_heading_h17",
+    "D3 h6": "sub_sub_article_subsection_heading_h18",
+}
 class HTMLHeaderTextSplitter:
     """
     Splitting HTML files based on specified headers.
@@ -515,8 +515,8 @@ class HTMLHeaderTextSplitter:
 
     def __init__(
         self,
-        header_mapping: List[Tuple[str, str]] = DEFAULT_HEADER_MAPPING,
-        header_capture: List[str] = [x[0][-2:] for x in header_mapping if x[0][-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']],
+        header_mapping: dict[str, str] = DEFAULT_HEADER_MAPPING,
+        header_capture: Collection[str] = {x[0][-2:] for x in header_mapping if x[0][-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']},
         
         return_each_element: bool = False,
     ):
@@ -529,62 +529,74 @@ class HTMLHeaderTextSplitter:
             return_each_element: Return each element w/ associated headers.
         """
         
-        self.header_mapping: Dict[str, str] = dict(sorted(header_mapping))
-        self.header_capture: List[str] = header_capture
+        self.header_mapping: dict[str, str] = header_mapping
+        self.header_capture: Collection[str] = header_capture
         # Output element-by-element or aggregated into chunks w/ common headers
-        self.return_each_element = return_each_element
-
+        self.return_each_element: bool = return_each_element
+        
+        from langchain.document_transformers.html_chunker import HtmlChunker
+        self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
+    
+    
     def aggregate_chunks_by_metadata(
-        self, chunks: Iterable[dict]
-    ) -> Generator[dict]:
-        """Combine adjacent chunks with common metadata
+        self, chunks: Collection[dict[str, any]]
+    ) -> Generator[dict[str, any]]:
+        """Combine adjacent chunks with identical metadata.
+        Should only be called with a single document's chunks.
         
         Args:
             chunks: HTML element content with associated identifying info and metadata
         """
-        prior_chunk: dict = None
+        if self.return_each_element:
+            yield from chunks
+        else:
+            prior_chunk: dict = None
+    
+            for chunk in chunks:
+                if prior_chunk and prior_chunk["meta"] == chunk["meta"]:
+                    # If the last chunk in the aggregated list
+                    # has the same metadata as the current chunk,
+                    # append the current text to the last chunk's text
+                    prior_chunk["text"] += "\n  " + chunk["text"]
+                else:
+                    # Otherwise, yield the prior chunk, and store this new one
+                    if prior_chunk:
+                        yield prior_chunk
+                        prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
+    def docsFromChunks(self, chunks: Collection[dict[str, any]]) -> list[Document]:
+        return [docFromChunk(chunk) for chunk in self.aggregate_chunks_by_metadata(chunks)]
+    def docFromChunk(self, chunk: dict[str, any]) -> Document:
+        return Document(
+            page_content=chunk["text"],
+            metadata={self.header_mapping.get(key, key) for key, val in chunk["meta"].items()}
+        )
 
-        for chunk in chunks:
-            if prior_chunk and prior_chunk["meta"] == chunk["meta"]:
-                # If the last chunk in the aggregated list
-                # has the same metadata as the current chunk,
-                # append the current text to the last chunk's text
-                prior_chunk["text"] += "\n  " + chunk["text"]
-            else:
-                # Otherwise, yield the prior chunk, and store this new one
-                if prior_chunk:
-                    yield prior_chunk
-                prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
-
-    def split_text(self, text: str) -> List[Document]:
+    def split_text(self, text: str) -> Generator[Document]:
         """Split HTML text string
         
         Args:
             text: HTML text
         """
+        
         return self.split_text_from_source(StringIO(text))
 
-    def split_text_from_source(self, source: Any) -> Generator[Document]:
-        return list(self.split_text_from_source_generator(source))
-    def split_text_from_source_generator(self, source: Any) -> Generator[Document]:
+    def split_text_from_source(self, source: any) -> list[Document]:
         """Split HTML file
         
         Args:
-            source: a URL (string), a file location (string), or a StringIO containing HTML
+            source: either: string (URL or file) or readable IO object (file/connection)
         """
         
-        from langchain.document_transformers.html_chunker import HtmlChunker
+        return docsFromChunks(self.chunker.parseQueue(source, False))
+    def split_text_from_sources(self, sources: Iterable[any]) -> Generator[Document]:
+        """Split HTML file
         
-        chunker = HtmlChunker(self.header_capture)
-        q = chunker.parseQueue([source], True)
-        if not self.return_each_element:
-            q = self.aggregate_chunks_by_metadata(q)
-
-        for chunk in q:
-            yield Document(
-                page_content=chunk["text"],
-                metadata={self.header_mapping[key] if key in self.header_mapping else key: val for key, val in chunk["meta"].items()}
-            )
+        Args:
+            sources: a sequence of either: string (URL or file) or readable IO object (file/connection)
+        """
+        
+        for source in sources:
+            yield from split_text_from_source(source)
 
 # should be in newer Python versions (3.10+)
 # @dataclass(frozen=True, kw_only=True, slots=True)

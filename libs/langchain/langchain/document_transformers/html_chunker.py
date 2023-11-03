@@ -1,11 +1,11 @@
 '''
-# HTML Chunker
+# HTML Chunking
 
 A lightweight (SAX) HTML parse, "chunked" into sequence of contiguous text segments, each with all "relevant" headers.
 Chunks are always delimited by relevant headers, but also by a (configurable) set of tags between-which to chunk.
 for reference, see https://www.w3.org/WAI/tutorials/page-structure/headings/
 
-requires lxml (pip install lxml)
+requires lxml
 
 ## USAGE:
 
@@ -41,18 +41,18 @@ ChunkPos models a tree similar to Header, but also containing non-header "chunki
 (origin: https://github.com/PresidioVantage/html-chunking)
 '''
 
-import sys
-from builtins import int, str
-from collections import deque
 from typing import (
-    Any,
     Callable,
     Generator,
+)
+from collections import deque
+from collections.abc import (
+    Iterable,
+    Collection,
 )
 
 import logging
 
-import xml.sax
 import xml.sax.xmlreader
 import xml.sax.handler
 import urllib.request
@@ -68,9 +68,9 @@ FLATTEN_TAGS = [
     "header", "hgroup"]
 DEFAULT_CHUNK_TAGS = [
     "div", "p", "blockquote", "ol", "ul"] # TODO consider adding "article" to this list?
-DEFAULT_LOOSE = False
+DEFAULT_STRICT = True
 
-def PRINT_CHUNK(x):
+def PRINT_CHUNK(x: dict[str, any]):
     print({k:x[k] for k in ["text", "meta", "uri"]})
     
     # more verbose print for debugging:
@@ -83,48 +83,72 @@ class HtmlChunker:
     '''
     for single-threaded, sequential parsing only.
     
-    n.b. setting "loose" to True will use lxml.html+lxml.sax instead of built-in xml.sax
-    this is required for html's lax tag structure, but it significantly degrades performance (including a full DOM parse)
+    this uses lxml.html parser to tolerate html's lax tag structure,
+    which significantly degrades performance (including a full DOM parse).
+    
+    the "strict" argument controls whether to use built-in xml.sax instead of lxml.html+lxml.sax
+    this is lighter and faster but requires the document have balanced tags (~well-formed xml)
+    
+    the "source" argument is passed directly to the parser (with exceptions):
+    lxml.html for loose parsing:
+        filename_or_url: "a filename, URL, or file-like object"
+        (https://lxml.de/apidoc/lxml.html.html#lxml.html.parse)
+        http/https URLs are not supported by lxml, so they are converted
+    xml.sax for strict parsing: 
+        filename_or_stream: "can be a filename or a file object"
+        (https://docs.python.org/3/library/xml.sax.html)
     '''
     
     def __init__(self,
-            header_tags: list[str] = ALL_HEADER_TAGS,
-            chunk_tags: list[str] = DEFAULT_CHUNK_TAGS):
+            header_tags: Collection[str] = ALL_HEADER_TAGS,
+            chunk_tags: Collection[str] = DEFAULT_CHUNK_TAGS):
         
-        if not all(x in ALL_HEADER_TAGS for x in header_tags):
-            raise Exception(f"invalid header_tags: {header_tags}")
-        if any(x in ALL_HEADER_TAGS for x in chunk_tags):
-            raise Exception(f"invalid chunk_tags: {chunk_tags}")
+        # create a dummy just to validate the arguments
+        ChunkHandler(None, header_tags, chunk_tags)
+        # if not all(x in ALL_HEADER_TAGS for x in header_tags):
+        #     raise Exception(f"invalid header_tags: {header_tags}")
+        # if any(x in ALL_HEADER_TAGS for x in chunk_tags):
+        #     raise Exception(f"invalid chunk_tags: {chunk_tags}")
         
-        self.header_tags: list[str] = header_tags
-        self.chunk_tags: list[str] = chunk_tags
+        self.header_tags: Collection[str] = header_tags
+        self.chunk_tags: Collection[str] = chunk_tags
     
-    def parseList(self, source, loose = DEFAULT_LOOSE) -> list[dict[str, Any]]:
-        theList = []
-        HtmlChunker._parse(
-            source,
-            self._newHandler(theList.append),
-            loose)
-        return theList
-    def parseQueue(self, sources, loose = DEFAULT_LOOSE) -> Generator[dict[str, Any], None, None]:
-        theQ = deque()
-        handler = self._newHandler(theQ.append)
+    def parseChunkSequence(self,
+            sources: Iterable[any],
+            strict: bool = DEFAULT_STRICT) \
+            -> Generator[dict[str, any], None, None]:
+        for q in self.parseQueueSequence(sources, strict):
+            yield from q
+    def parseQueueSequence(self,
+            sources: Iterable[any],
+            strict: bool = DEFAULT_STRICT) \
+            -> Generator[deque[dict[str, any]], None, None]:
         for source in sources:
-            HtmlChunker._parse(source, handler, loose)
-            while theQ:
-                yield theQ.popleft()
-    def parseEvents(self, sources, callback, loose = DEFAULT_LOOSE):
+            yield self.parseQueue(source, strict)
+    
+    def parseQueue(self,
+            source: any,
+            strict: bool = DEFAULT_STRICT) \
+            -> deque[dict[str, any], None, None]:
+        theQ = deque()
+        self.parseEvents([source], theQ.append, strict)
+        return theQ
+        
+    def parseEvents(self,
+            sources: Iterable[any],
+            callback: Callable[dict[str, any], any],
+            strict: bool = DEFAULT_STRICT):
         handler = self._newHandler(callback)
         for source in sources:
             HtmlChunker._parse(
                 source,
                 handler,
-                loose)
+                strict)
     
     # Helper Methods:
     
     def _newHandler(self,
-            callback: Callable[list[tuple[str, Any]], Any] if TUPLES_NOT_DICT else Callable[dict, Any] = PRINT_CHUNK) \
+            callback: Callable[dict[str, any], any]) \
             -> xml.sax.handler.ContentHandler:
         return ChunkHandler(
             callback,
@@ -133,11 +157,17 @@ class HtmlChunker:
     
     @staticmethod
     def _parse(
-            source,
+            source: any,
             handler: xml.sax.handler.ContentHandler,
-            loose):
+            strict: bool):
         
-        if loose:
+        if strict:
+            # xml.sax sets null url for open HttpConnections
+            # (it works fine for Strings and FileIO)
+            if not isinstance(source, str) and getattr(source, "url", None):
+                handler.setDocumentLocator(SourceLocator(source.url))
+            xml.sax.parse(source, handler)
+        else:
             try:
                 import lxml.html
                 import lxml.sax
@@ -146,27 +176,27 @@ class HtmlChunker:
                     "Unable to import lxml, please install with `pip install lxml`."
                 ) from e
             
-            # lxml sax has no zero support for DocumentLocator
+            tree = None
+            if isinstance(source, str) and (source.startswith("http://") or source.startswith("https://")):
+                with urllib.request.urlopen(source) as c:
+                    tree = lxml.html.parse(c)
+            else:
+                tree = lxml.html.parse(source)
+            
+            # LXML SAX has zero support for DocumentLocator
             if isinstance(source, str):
                 handler.setDocumentLocator(SourceLocator(source))
             elif getattr(source, "url", None):
                 handler.setDocumentLocator(SourceLocator(source.url))
             elif getattr(source, "name", None):
                 handler.setDocumentLocator(SourceLocator(source.name))
-            
-            tree = None
-            if isinstance(source, str) and (source.startswith("http://") or source.startswith("https://")):
-                with urllib.request.urlopen(source) as c:
-                    tree = lxml.html.parse(c)
-                    # tree.docinfo.URL = source
-            else:
-                tree = lxml.html.parse(source)
-                # print(tree.docinfo.URL)
+            # unfortunately this returns a file:/ URL for filename sources,
+            # technically correct, but inconsistent with typical SAX.
+            # handler.setDocumentLocator(SourceLocator(tree.docinfo.URL))
             
             lxml.sax.saxify(tree, handler)
-        else:
-            xml.sax.parse(source, handler)
 
+# TODO is there a better way to make a compliant Locator for these one-off cases? (e.g. anonymous-subclass-instances)
 class SourceLocator(xml.sax.xmlreader.Locator):
     def __init__(self, source):
         self.source = source
@@ -308,18 +338,18 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
     for single-threaded, sequential parsing only.
     '''
     def __init__(self,
-            yield_function: Callable[dict, Any] = PRINT_CHUNK,
-            header_tags: list[str] = ALL_HEADER_TAGS,
-            chunk_tags: list[str] = DEFAULT_CHUNK_TAGS):
+            yield_function: Callable[dict, any] = PRINT_CHUNK,
+            header_tags: Collection[str] = ALL_HEADER_TAGS,
+            chunk_tags: Collection[str] = DEFAULT_CHUNK_TAGS):
         
         if not all(x in ALL_HEADER_TAGS for x in header_tags):
             raise Exception(f"invalid header_tags: {header_tags}")
         if any(x in ALL_HEADER_TAGS for x in chunk_tags):
             raise Exception(f"invalid chunk_tags: {chunk_tags}")
         
-        self.header_tags: list[str] = header_tags
-        self.chunk_tags: list[str] = chunk_tags
-        self.yield_function: Callable[dict, Any] = yield_function
+        self.yield_function: Callable[dict, any] = yield_function if yield_function else lambda x: None
+        self.header_tags: Collection[str] = header_tags
+        self.chunk_tags: Collection[str] = chunk_tags
         
         # mutable state, esp. tracking pointers between/during parse events:
         self.uri: str = None
@@ -337,8 +367,14 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
         self.endElement(nsname[1])
     
     def setDocumentLocator(self, loc: xml.sax.xmlreader.Locator):
-        LOG.debug(f"setDocumentLocator({loc.getSystemId()})")
-        self.uri = loc.getSystemId()
+        # xml.sax does this when given an open URLConnection, unfortunately
+        if loc is None or loc.getSystemId() is None:
+            LOG.warning(f"setDocumentLocator(None) replacing {self.uri} ({loc})")
+        else:
+            LOG.debug(f"setDocumentLocator({loc.getSystemId()}) replacing {self.uri}")
+            
+            self.uri = loc.getSystemId()
+    
     def startDocument(self):
         LOG.debug("startDocument()")
     def endDocument(self):
@@ -432,7 +468,7 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
         self.current = self.current.parent
 
     def characters(self, content: str):
-        if content.strip():
+        # if content.strip():
             if self.current is None:
                 raise Exception(f"characters in None: {content}")
             
@@ -444,7 +480,7 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
             elif self.chunk:
                 self.text += content
     
-    def send_chunk(self, send_blank = False) -> dict[str, Any]:
+    def send_chunk(self, send_blank = False) -> dict[str, any]:
         LOG.debug(f"send_chunk({'!' if send_blank else ''}{self.chunk})")
         if self.chunk:
             retval = {
@@ -453,18 +489,22 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
                 "text": self.text.strip(),
                 "meta": self.chunk.pos.get_meta() if TUPLES_NOT_DICT else dict(self.chunk.pos.get_meta())}
             
-            if send_blank or self.text:
+            if send_blank or retval["text"]:
                 self.yield_function(retval)
                 self.header_sent = True
-                self.text = ""
+            
+            self.text = ""
             
             return retval
         else:
             return None
 
 if __name__ == "__main__":
+    import sys
     verbose = False
-    loose = True
+    strict = False
+    default_source = "test1basic.html"
+    # default_source = "https://presidiovantage.com/about.xhtml"
     
     chunker = HtmlChunker()
     
@@ -474,8 +514,8 @@ if __name__ == "__main__":
     else:
         handler = chunker._newHandler(PRINT_CHUNK)
     
-    sources = sys.argv[1:] if 1<len(sys.argv) else ["test1basic.html"]
+    sources = sys.argv[1:] if 1<len(sys.argv) else [default_source]
     for source in sources:
         print(f"###parsing### {source}")
-        HtmlChunker._parse(source, handler, loose)
+        HtmlChunker._parse(source, handler, strict)
         print()
