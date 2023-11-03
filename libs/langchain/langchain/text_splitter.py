@@ -518,16 +518,16 @@ class HTMLHeaderTextSplitter:
         prior_chunk: dict = None
 
         for chunk in chunks:
-            if prior_chunk and prior_chunk["meta"] == chunk["metadata"]:
+            if prior_chunk and prior_chunk["meta"] == chunk["meta"]:
                 # If the last chunk in the aggregated list
                 # has the same metadata as the current chunk,
                 # append the current text to the last chunk's text
-                current_chunk["text"] += "\n  " + chunk["text"]
+                prior_chunk["text"] += "\n  " + chunk["text"]
             else:
                 # Otherwise, yield the prior chunk, and store this new one
-                if current_chunk:
-                    yield current_chunk
-                current_chunk = chunk.copy() # copy to avoid modifying original chunk text
+                if prior_chunk:
+                    yield prior_chunk
+                prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
 
     def split_text(self, text: str) -> List[Document]:
         """Split HTML text string
@@ -535,9 +535,11 @@ class HTMLHeaderTextSplitter:
         Args:
             text: HTML text
         """
-        return list(self.split_text_from_source(StringIO(text)))
+        return self.split_text_from_source(StringIO(text))
 
     def split_text_from_source(self, source: Any) -> Generator[Document]:
+        return list(self.split_text_from_source_generator(source))
+    def split_text_from_source_generator(self, source: Any) -> Generator[Document]:
         """Split HTML file
         
         Args:
@@ -546,15 +548,15 @@ class HTMLHeaderTextSplitter:
         
         from langchain.text_splitters.html_chunker import HtmlChunker
         
-        chunker = HtmlChunker(self, header_mapping.keys())
-        q = chunker.parseQueue(source, True)
-        if not return_each_element:
+        chunker = HtmlChunker(list(self.header_mapping.keys()))
+        q = chunker.parseQueue([source], True)
+        if not self.return_each_element:
             q = self.aggregate_chunks_by_metadata(q)
-        
+
         for chunk in q:
             yield Document(
                 page_content=chunk["text"],
-                metadata={self.header_mapping[key.split(" ")[-1]]:val for key,val in chunk["meta"]}
+                metadata={self.header_mapping[key] if key in self.header_mapping else key: val for key, val in chunk["meta"].items()}
             )
 
 # should be in newer Python versions (3.10+)
