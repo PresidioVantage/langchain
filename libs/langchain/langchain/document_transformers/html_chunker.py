@@ -15,8 +15,9 @@ def example_list():
     for x in chunker.parseList("test1basic.html"):
         print(x)
 def example_queue():
-    for x in chunker.parseQueue(["test2flat.html", "test3semantic.html"]):
-        print(x)
+    q =  chunker.parseQueue(["test2flat.html", "test3semantic.html"])
+    while q
+        print(q.popleft())
 def example_events():
     chunker.parseEvents(
         ["test4deep.html", "test5fail.html"],
@@ -40,16 +41,16 @@ ChunkPos models a tree similar to Header, but also containing non-header "chunki
 (origin: https://github.com/PresidioVantage/html-chunking)
 '''
 
+import sys
 from builtins import int, str
-import logging
+from collections import deque
 from typing import (
     Any,
     Callable,
     Generator,
 )
-from collections import deque
-import sys
-import io
+
+import logging
 
 import xml.sax
 import xml.sax.xmlreader
@@ -72,19 +73,20 @@ DEFAULT_LOOSE = False
 def PRINT_CHUNK(x):
     print({k:x[k] for k in ["text", "meta", "uri"]})
     
-    # a bit easier for debugging:
+    # more verbose print for debugging:
     # print(f"#{x['text']}")
     # for y in x['meta'] if TUPLES_NOT_DICT else x['meta'].items():
     #     print(f"\t{y}")
     # print()
 
-'''
-for single-threaded, sequential parsing only.
-
-n.b. setting "loose" to True will use lxml.html+lxml.sax instead of built-in xml.sax
-this is required for html's lax tag structure, but it significantly degrades performance (including a full DOM parse)
-'''
 class HtmlChunker:
+    '''
+    for single-threaded, sequential parsing only.
+    
+    n.b. setting "loose" to True will use lxml.html+lxml.sax instead of built-in xml.sax
+    this is required for html's lax tag structure, but it significantly degrades performance (including a full DOM parse)
+    '''
+    
     def __init__(self,
             header_tags: list[str] = ALL_HEADER_TAGS,
             chunk_tags: list[str] = DEFAULT_CHUNK_TAGS):
@@ -171,17 +173,18 @@ class SourceLocator(xml.sax.xmlreader.Locator):
     def getSystemId(self):
         return self.source
 
-'''
-an HTML Element node, including:
-  a pointer to its Parent Element (or None if root element)
-  a pointer to its "Nearest" Header (or None)
-
-'parent' is a singly-linked-list to the root.
-'head' is a chain of self-or-prior-sibling headers, "nearest by level."
-'tag' is the the only other "semantic" data.
-'index' and 'child_elem_count' are merely for identification/debugging purposes.
-'''
 class ElemPos:
+    '''
+    an HTML Element node, including:
+      a pointer to its Parent Element (or None if root element)
+      a pointer to its "Nearest" Header (or None)
+    
+    'parent' is a singly-linked-list to the root.
+    'head' is a chain of self-or-prior-sibling headers, "nearest by level."
+    'tag' is the the only other "semantic" data.
+    'index' and 'child_elem_count' are merely for identification/debugging purposes.
+    '''
+    
     def __init__(self,
             parent: "ElemPos",
             tag: str,
@@ -218,11 +221,13 @@ class ElemPos:
         return (self.parent.get_xpath() if self.parent else "") \
             + f"/*[{self.index}]"
 
-'''
-an HTML Header Element node (i.e. H1 ... H6), including:
-  a pointer to its "Nearest Prior Higher" Header (or None if there is none)
-'''
+
 class Header:
+    '''
+    an HTML Header Element node (i.e. H1 ... H6), including:
+      a pointer to its "Nearest Prior Higher" Header (or None if there is none)
+    '''
+    
     def __init__(self,
             prior_higher: "Header",
             elem: ElemPos):
@@ -263,10 +268,14 @@ class Header:
         # return f"H{self.get_dict()}";
     def get_header_path(self):
         return (self.prior_higher.get_header_path() if self.prior_higher else "") \
-            + (" " if self.prior_higher and self.prior_higher.depth == self.depth else " / ") \
+            + ("~" if self.prior_higher and self.prior_higher.depth == self.depth else " / ") \
             + self.pos.tag
 
 class ChunkPos:
+    '''
+    a pointer to trace all "applicable" chunking elements (for a given position).
+    this is informational-only, and it is not used-by / needed-for the actual chunking logic.
+    '''
     def __init__(self,
             parent_chunk: "ChunkPos",
             elem: ElemPos):
@@ -293,10 +302,11 @@ class ChunkPos:
         return f"{self.pos.get_indent(1)}C({self.get_chunk_path()})"
 
 
-'''
-for single-threaded, sequential parsing only.
-'''
+
 class ChunkHandler(xml.sax.handler.ContentHandler):
+    '''
+    for single-threaded, sequential parsing only.
+    '''
     def __init__(self,
             yield_function: Callable[dict, Any] = PRINT_CHUNK,
             header_tags: list[str] = ALL_HEADER_TAGS,
@@ -311,7 +321,7 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
         self.chunk_tags: list[str] = chunk_tags
         self.yield_function: Callable[dict, Any] = yield_function
         
-        # mutable state, tracking the parsing events:
+        # mutable state, esp. tracking pointers between/during parse events:
         self.uri: str = None
         self.current: ElemPos = None
         self.prior_headers: Header = None
@@ -392,6 +402,7 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
         if self.building_header:
             # building_header mode does nothing, except flag when it is over
             if self.current == self.building_header.pos:
+                self.building_header.text = self.building_header.text.strip()
                 LOG.debug(f"#{self.building_header}")
                 self.building_header = None
         
@@ -466,5 +477,5 @@ if __name__ == "__main__":
     sources = sys.argv[1:] if 1<len(sys.argv) else ["test1basic.html"]
     for source in sources:
         print(f"###parsing### {source}")
-        chunker._parse(source, handler, loose)
+        HtmlChunker._parse(source, handler, loose)
         print()
