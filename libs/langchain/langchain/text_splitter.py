@@ -563,8 +563,9 @@ class HTMLHeaderTextSplitter:
                     if prior_chunk:
                         yield prior_chunk
                         prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
-    def docsFromChunks(self, chunks: Collection[dict[str, any]]) -> list[Document]:
-        return [docFromChunk(chunk) for chunk in self.aggregate_chunks_by_metadata(chunks)]
+    def docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document]:
+        for chunk in self.aggregate_chunks_by_metadata(chunks):
+            yield docFromChunk(chunk)
     def docFromChunk(self, chunk: dict[str, any]) -> Document:
         return Document(
             page_content=chunk["text"],
@@ -587,7 +588,7 @@ class HTMLHeaderTextSplitter:
             source: either: string (URL or file) or readable IO object (file/connection)
         """
         
-        return docsFromChunks(self.chunker.parseQueue(source, False))
+        return [docsFromChunks(self.chunker.parseQueue(source, False))]
     def split_text_from_sources(self, sources: Iterable[any]) -> Generator[Document]:
         """Split HTML file
         
@@ -596,7 +597,7 @@ class HTMLHeaderTextSplitter:
         """
         
         for source in sources:
-            yield from split_text_from_source(source)
+            yield from docsFromChunks(self.chunker.parseQueue(source, False))
 
 # should be in newer Python versions (3.10+)
 # @dataclass(frozen=True, kw_only=True, slots=True)
