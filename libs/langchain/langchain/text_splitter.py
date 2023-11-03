@@ -484,6 +484,29 @@ class MarkdownHeaderTextSplitter:
             ]
 
 
+DEFAULT_HEADER_MAPPING = [
+    ("h1", "article_main_heading_h1"),
+    
+    ("h2", "article_subsection_heading_h2"),
+    ("h3", "article_subsection_heading_h3"),
+    ("h4", "article_subsection_heading_h4"),
+    ("h5", "article_subsection_heading_h5"),
+    ("h6", "article_subsection_heading_h6"),
+    
+    ("D2 h1", "sub_article_subsection_heading_h07"),
+    ("D2 h2", "sub_article_subsection_heading_h08"),
+    ("D2 h3", "sub_article_subsection_heading_h09"),
+    ("D2 h4", "sub_article_subsection_heading_h10"),
+    ("D2 h5", "sub_article_subsection_heading_h11"),
+    ("D2 h6", "sub_article_subsection_heading_h12"),
+    
+    ("D3 h1", "sub_sub_article_subsection_heading_h13"),
+    ("D3 h2", "sub_sub_article_subsection_heading_h14"),
+    ("D3 h3", "sub_sub_article_subsection_heading_h15"),
+    ("D3 h4", "sub_sub_article_subsection_heading_h16"),
+    ("D3 h5", "sub_sub_article_subsection_heading_h17"),
+    ("D3 h6", "sub_sub_article_subsection_heading_h18")]
+
 class HTMLHeaderTextSplitter:
     """
     Splitting HTML files based on specified headers.
@@ -492,7 +515,9 @@ class HTMLHeaderTextSplitter:
 
     def __init__(
         self,
-        headers_to_split_on: List[Tuple[str, str]],
+        header_mapping: List[Tuple[str, str]] = DEFAULT_HEADER_MAPPING,
+        header_capture: List[str] = [x[0][-2:] for x in header_mapping if x[0][-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']],
+        
         return_each_element: bool = False,
     ):
         """Create a new HTMLHeaderTextSplitter.
@@ -503,9 +528,11 @@ class HTMLHeaderTextSplitter:
                 h5, h6 e.g. [("h1", "Header 1"), ("h2", "Header 2)].
             return_each_element: Return each element w/ associated headers.
         """
+        
+        self.header_mapping: Dict[str, str] = dict(sorted(header_mapping))
+        self.header_capture: List[str] = header_capture
         # Output element-by-element or aggregated into chunks w/ common headers
         self.return_each_element = return_each_element
-        self.header_mapping: Dict[str, str] = dict(sorted(headers_to_split_on))
 
     def aggregate_chunks_by_metadata(
         self, chunks: Iterable[dict]
@@ -548,7 +575,7 @@ class HTMLHeaderTextSplitter:
         
         from langchain.document_transformers.html_chunker import HtmlChunker
         
-        chunker = HtmlChunker(list(self.header_mapping.keys()))
+        chunker = HtmlChunker(self.header_capture)
         q = chunker.parseQueue([source], True)
         if not self.return_each_element:
             q = self.aggregate_chunks_by_metadata(q)
