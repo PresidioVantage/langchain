@@ -546,7 +546,7 @@ class HTMLHeaderTextSplitter:
             source: a URL (string), a file location (string), or a StringIO containing HTML
         """
         
-        from langchain.text_splitters.html_chunker import HtmlChunker
+        from langchain.document_transformers.html_chunker import HtmlChunker
         
         chunker = HtmlChunker(list(self.header_mapping.keys()))
         q = chunker.parseQueue([source], True)
