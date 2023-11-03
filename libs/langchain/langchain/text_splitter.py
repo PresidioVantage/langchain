@@ -562,7 +562,7 @@ class HTMLHeaderTextSplitter:
                     # Otherwise, yield the prior chunk, and store this new one
                     if prior_chunk:
                         yield prior_chunk
-                        prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
+                    prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
     def docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document]:
         for chunk in self.aggregate_chunks_by_metadata(chunks):
             yield docFromChunk(chunk)
