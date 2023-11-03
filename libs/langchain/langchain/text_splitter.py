@@ -537,8 +537,44 @@ class HTMLHeaderTextSplitter:
         from langchain.document_transformers.html_chunker import HtmlChunker
         self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
     
+    def split_text(self, text: str) -> Generator[Document]:
+        """Split HTML text string
+        
+        Args:
+            text: HTML text
+        """
+        
+        return self.split_text_from_source(StringIO(text))
+
+    def split_text_from_source(self, source: any) -> list[Document]:
+        """Split HTML file
+        
+        Args:
+            source: either: string (URL or file) or readable IO object (file/connection)
+        """
+        
+        return [self._docsFromChunks(self.chunker.parseQueue(source, False))]
+    def split_text_from_sources(self, sources: Iterable[any]) -> Generator[Document]:
+        """Split HTML file
+        
+        Args:
+            sources: a sequence of either: string (URL or file) or readable IO object (file/connection)
+        """
+        
+        for source in sources:
+            yield from self._docsFromChunks(self.chunker.parseQueue(source, False))
     
-    def aggregate_chunks_by_metadata(
+    # Helper Functions
+    
+    def _docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document]:
+        for chunk in self._aggregate_chunks_by_metadata(chunks):
+            yield self._docFromChunk(chunk)
+    def _docFromChunk(self, chunk: dict[str, any]) -> Document:
+        return Document(
+            page_content=chunk["text"],
+            metadata={self.header_mapping.get(key, key) for key, val in chunk["meta"].items()}
+        )
+    def _aggregate_chunks_by_metadata(
         self, chunks: Collection[dict[str, any]]
     ) -> Generator[dict[str, any]]:
         """Combine adjacent chunks with identical metadata.
@@ -563,41 +599,6 @@ class HTMLHeaderTextSplitter:
                     if prior_chunk:
                         yield prior_chunk
                     prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
-    def docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document]:
-        for chunk in self.aggregate_chunks_by_metadata(chunks):
-            yield docFromChunk(chunk)
-    def docFromChunk(self, chunk: dict[str, any]) -> Document:
-        return Document(
-            page_content=chunk["text"],
-            metadata={self.header_mapping.get(key, key) for key, val in chunk["meta"].items()}
-        )
-
-    def split_text(self, text: str) -> Generator[Document]:
-        """Split HTML text string
-        
-        Args:
-            text: HTML text
-        """
-        
-        return self.split_text_from_source(StringIO(text))
-
-    def split_text_from_source(self, source: any) -> list[Document]:
-        """Split HTML file
-        
-        Args:
-            source: either: string (URL or file) or readable IO object (file/connection)
-        """
-        
-        return [docsFromChunks(self.chunker.parseQueue(source, False))]
-    def split_text_from_sources(self, sources: Iterable[any]) -> Generator[Document]:
-        """Split HTML file
-        
-        Args:
-            sources: a sequence of either: string (URL or file) or readable IO object (file/connection)
-        """
-        
-        for source in sources:
-            yield from docsFromChunks(self.chunker.parseQueue(source, False))
 
 # should be in newer Python versions (3.10+)
 # @dataclass(frozen=True, kw_only=True, slots=True)
