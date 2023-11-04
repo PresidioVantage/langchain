@@ -155,3 +155,6 @@ class HTMLHeaderTextSplitter(BaseLoader):
                     prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
             if prior_chunk:
                 yield prior_chunk
+
+if __name__ == "__main__":
+    print("hello world")
