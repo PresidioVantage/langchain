@@ -84,7 +84,7 @@ class HTMLHeaderTextSplitter:
         # Output element-by-element or aggregated into chunks w/ common headers
         self.return_each_element: bool = return_each_element
         
-        from langchain.utils.html_chunker import HtmlChunker
+        from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
         self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
     
     def split_text(self, text: str) -> List[Document]:
