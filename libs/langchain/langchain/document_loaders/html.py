@@ -37,10 +37,34 @@ class HTMLHeaderTextSplitter:
     Splitting HTML files based on specified headers.
     Requires lxml package.
     """
-
+    
+    _DEFAULT_HEADER_MAPPING: dict[str, str] = [
+        ("h1", "article_main_heading_h1"),
+        
+        ("h2", "article_subsection_heading_h2"),
+        ("h3", "article_subsection_heading_h3"),
+        ("h4", "article_subsection_heading_h4"),
+        ("h5", "article_subsection_heading_h5"),
+        ("h6", "article_subsection_heading_h6"),
+        
+        ("D2 h1", "sub_article_subsection_heading_h07"),
+        ("D2 h2", "sub_article_subsection_heading_h08"),
+        ("D2 h3", "sub_article_subsection_heading_h09"),
+        ("D2 h4", "sub_article_subsection_heading_h10"),
+        ("D2 h5", "sub_article_subsection_heading_h11"),
+        ("D2 h6", "sub_article_subsection_heading_h12"),
+        
+        ("D3 h1", "sub_sub_article_subsection_heading_h13"),
+        ("D3 h2", "sub_sub_article_subsection_heading_h14"),
+        ("D3 h3", "sub_sub_article_subsection_heading_h15"),
+        ("D3 h4", "sub_sub_article_subsection_heading_h16"),
+        ("D3 h5", "sub_sub_article_subsection_heading_h17"),
+        ("D3 h6", "sub_sub_article_subsection_heading_h18"),
+    ]
+    
     def __init__(
         self,
-        header_mapping: Dict[str, Any] = None,
+        header_mapping: Dict[str, Any] = dict(_DEFAULT_HEADER_MAPPING),
         return_each_element: bool = False,
     ):
         """Create a new HTMLHeaderTextSplitter.
@@ -53,29 +77,7 @@ class HTMLHeaderTextSplitter:
         """
 
         if header_mapping is None:
-            header_mapping = {
-                "h1": "article_main_heading_h1",
-                
-                "h2": "article_subsection_heading_h2",
-                "h3": "article_subsection_heading_h3",
-                "h4": "article_subsection_heading_h4",
-                "h5": "article_subsection_heading_h5",
-                "h6": "article_subsection_heading_h6",
-                
-                "D2 h1": "sub_article_subsection_heading_h07",
-                "D2 h2": "sub_article_subsection_heading_h08",
-                "D2 h3": "sub_article_subsection_heading_h09",
-                "D2 h4": "sub_article_subsection_heading_h10",
-                "D2 h5": "sub_article_subsection_heading_h11",
-                "D2 h6": "sub_article_subsection_heading_h12",
-                
-                "D3 h1": "sub_sub_article_subsection_heading_h13",
-                "D3 h2": "sub_sub_article_subsection_heading_h14",
-                "D3 h3": "sub_sub_article_subsection_heading_h15",
-                "D3 h4": "sub_sub_article_subsection_heading_h16",
-                "D3 h5": "sub_sub_article_subsection_heading_h17",
-                "D3 h6": "sub_sub_article_subsection_heading_h18",
-            }
+            header_mapping = self.DEFAULT_HEADER_MAPPING
         
         self.header_mapping: dict[str, str] = header_mapping
         self.header_capture: Collection[str] = {x[-2:] for x in header_mapping if x[-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
