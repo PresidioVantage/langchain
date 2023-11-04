@@ -515,29 +515,29 @@ class HTMLHeaderTextSplitter:
 
     def __init__(
         self,
-        header_mapping: dict[str, str] = DEFAULT_HEADER_MAPPING,
-        header_capture: Collection[str] = {x[0][-2:] for x in header_mapping if x[0][-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']},
-        
+        header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
     ):
         """Create a new HTMLHeaderTextSplitter.
         
         Args:
-            headers_to_split_on: list of tuples of headers we want to track mapped to
+            header_mapping: dict of headers we want to track mapped to
                 (arbitrary) keys for metadata. Allowed header values: h1, h2, h3, h4,
                 h5, h6 e.g. [("h1", "Header 1"), ("h2", "Header 2)].
             return_each_element: Return each element w/ associated headers.
         """
-        
+
+        if header_mapping is None:
+            header_mapping = DEFAULT_HEADER_MAPPING
         self.header_mapping: dict[str, str] = header_mapping
-        self.header_capture: Collection[str] = header_capture
+        self.header_capture: Collection[str] = {x[-2:] for x in header_mapping if x[-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
         # Output element-by-element or aggregated into chunks w/ common headers
         self.return_each_element: bool = return_each_element
         
         from langchain.document_transformers.html_chunker import HtmlChunker
         self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
     
-    def split_text(self, text: str) -> Generator[Document]:
+    def split_text(self, text: str) -> List[Document]:
         """Split HTML text string
         
         Args:
@@ -553,7 +553,7 @@ class HTMLHeaderTextSplitter:
             source: either: string (URL or file) or readable IO object (file/connection)
         """
         
-        return [self._docsFromChunks(self.chunker.parseQueue(source, False))]
+        return list(self._docsFromChunks(self.chunker.parseQueue(source, False)))
     def split_text_from_sources(self, sources: Iterable[any]) -> Generator[Document]:
         """Split HTML file
         
@@ -572,7 +572,7 @@ class HTMLHeaderTextSplitter:
     def _docFromChunk(self, chunk: dict[str, any]) -> Document:
         return Document(
             page_content=chunk["text"],
-            metadata={self.header_mapping.get(key, key) for key, val in chunk["meta"].items()}
+            metadata={self.header_mapping.get(key, key): val for key, val in chunk["meta"].items()}
         )
     def _aggregate_chunks_by_metadata(
         self, chunks: Collection[dict[str, any]]
@@ -598,7 +598,9 @@ class HTMLHeaderTextSplitter:
                     # Otherwise, yield the prior chunk, and store this new one
                     if prior_chunk:
                         yield prior_chunk
-                    prior_chunk = chunk.copy() # copy to avoid modifying original chunk text
+                    prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
+            if prior_chunk:
+                yield prior_chunk
 
 # should be in newer Python versions (3.10+)
 # @dataclass(frozen=True, kw_only=True, slots=True)
