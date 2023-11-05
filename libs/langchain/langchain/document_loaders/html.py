@@ -119,31 +119,6 @@ class HTMLTextHeaderSplitter(BaseLoader):
             page_content=chunk["text"],
             metadata={self.header_mapping.get(key, key): val for key, val in chunk["meta"].items()}
         )
-    # def _aggregate_chunks_by_metadata(self, chunks: Collection[dict[str, any]] ) -> Generator[dict[str, any], None, None]:
-    #     """Combine adjacent chunks with identical metadata.
-    #     Should only be called with a single document's chunks.
-    #
-    #     Args:
-    #         chunks: HTML element content with associated identifying info and metadata
-    #     """
-    #     if self.return_each_element:
-    #         yield from chunks
-    #     else:
-    #         prior_chunk: dict = None
-    #
-    #         for chunk in chunks:
-    #             if prior_chunk and prior_chunk["meta"] == chunk["meta"]:
-    #                 # If the last chunk in the aggregated list
-    #                 # has the same metadata as the current chunk,
-    #                 # append the current text to the last chunk's text
-    #                 prior_chunk["text"] += "\n  " + chunk["text"]
-    #             else:
-    #                 # Otherwise, yield the prior chunk, and store this new one
-    #                 if prior_chunk:
-    #                     yield prior_chunk
-    #                 prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
-    #         if prior_chunk:
-    #             yield prior_chunk
 
 class HTMLHeaderTextSplitterFromString(HTMLHeaderSplitter):
     def __init__(
