@@ -37,8 +37,7 @@ class UnstructuredHTMLLoader(UnstructuredFileLoader):
 
         return partition_html(filename=self.file_path, **self.unstructured_kwargs)
 
-
-class HTMLHeaderTextSplitter(BaseLoader):
+class HTMLTextHeaderSplitter(BaseLoader):
     """
     Splitting HTML files based on specified headers.
     Requires lxml package.
@@ -105,19 +104,19 @@ class HTMLHeaderTextSplitter(BaseLoader):
         for source in self.sources:
             yield from self._docsFromChunks(self.chunker.parseQueue(source, False))
     
-    @staticmethod
-    def split_text(
-        text: str,
-        header_mapping: Dict[str, Any] = None,
-        return_each_element: bool = False,
-    ) -> List[Document]:
-        """Split HTML text string
-        
-        Args:
-            text: HTML text
-        """
-        
-        return HTMLHeaderTextSplitter([StringIO(text)], header_mapping, return_each_element).load()
+    # @staticmethod
+    # def split_text(
+    #     text: str,
+    #     header_mapping: Dict[str, Any] = None,
+    #     return_each_element: bool = False,
+    # ) -> List[Document]:
+    #     """Split HTML text string
+    #
+    #     Args:
+    #         text: HTML text
+    #     """
+    #
+    #     return HTMLHeaderTextSplitter([StringIO(text)], header_mapping, return_each_element).load()
     
     # Helper Functions
     
@@ -154,3 +153,15 @@ class HTMLHeaderTextSplitter(BaseLoader):
                     prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
             if prior_chunk:
                 yield prior_chunk
+
+class HTMLHeaderTextSplitterFromString(HTMLHeaderSplitter):
+    def __init__(
+        self,
+        sources: Iterable[str],
+        header_mapping: Dict[str, Any] = None,
+        return_each_element: bool = False,
+    ):
+        super().__init__(
+            StringIO(source) for source in sources,
+            header_mapping,
+            return_each_element)
