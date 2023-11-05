@@ -71,6 +71,7 @@ class HTMLTextHeaderSplitter(BaseLoader):
         sources: Iterable[any],
         header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
+        return_urls: bool = True,
     ):
         """Create a new HTMLHeaderTextSplitter.
         
@@ -81,6 +82,7 @@ class HTMLTextHeaderSplitter(BaseLoader):
                 If 'None' (default), _DEFAULT_HEADER_MAPPING is used.
             return_each_element: Return each element w/ associated headers.
                 'False' to combine all adjacent chunks with identical metadata.
+            returh_urls: whether to include a source-url metadata in each returned Document
         """
         
         if not sources:
@@ -91,8 +93,8 @@ class HTMLTextHeaderSplitter(BaseLoader):
         self.header_mapping: dict[str, str] = header_mapping if header_mapping \
             else HTMLHeaderTextSplitter._DEFAULT_HEADER_MAPPING.copy()
         self.header_capture: set[str] = {x[-2:] for x in header_mapping if x[-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
-        # Output element-by-element or aggregated into chunks w/ common headers
         self.return_each_element: bool = return_each_element
+        self.return_urls: bool = return_urls
         
         self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
     
@@ -115,9 +117,14 @@ class HTMLTextHeaderSplitter(BaseLoader):
         for chunk in self._aggregate_chunks_by_metadata(chunks):
             yield self._docFromChunk(chunk)
     def _docFromChunk(self, chunk: dict[str, any]) -> Document:
+        meta = {}
+        if self.return_urls:
+            meta["url"] = chunk["url"]
+        for key, val in chunk["meta"].items():
+            meta[self.header_mapping.get(key, key)] = val
         return Document(
             page_content=chunk["text"],
-            metadata={self.header_mapping.get(key, key): val for key, val in chunk["meta"].items()}
+            metadata=meta
         )
 
 class HTMLHeaderTextSplitterFromString(HTMLHeaderSplitter):
