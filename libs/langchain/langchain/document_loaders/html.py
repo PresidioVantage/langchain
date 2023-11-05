@@ -1,9 +1,12 @@
-from typing import List
+from io import StringIO
+from typing import List, Dict, Iterable, Any, Iterator, Collection, Generator
 
 from langchain.document_loaders.base import BaseLoader
 
 from langchain.document_loaders.unstructured import UnstructuredFileLoader
 from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
+from langchain.schema import Document
+
 
 class UnstructuredHTMLLoader(UnstructuredFileLoader):
     """Load `HTML` files using `Unstructured`.
@@ -33,6 +36,7 @@ class UnstructuredHTMLLoader(UnstructuredFileLoader):
         from unstructured.partition.html import partition_html
 
         return partition_html(filename=self.file_path, **self.unstructured_kwargs)
+
 
 class HTMLHeaderTextSplitter(BaseLoader):
     """
@@ -86,7 +90,8 @@ class HTMLHeaderTextSplitter(BaseLoader):
         
         self.sources: Iterable[any] = sources
         
-        self.header_mapping: dict[str, str] = header_mapping if header_mapping else HTMLHeaderTextSplitter._DEFAULT_HEADER_MAPPING.copy()
+        self.header_mapping: dict[str, str] = header_mapping if header_mapping \
+            else HTMLHeaderTextSplitter._DEFAULT_HEADER_MAPPING.copy()
         self.header_capture: set[str] = {x[-2:] for x in header_mapping if x[-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
         # Output element-by-element or aggregated into chunks w/ common headers
         self.return_each_element: bool = return_each_element
@@ -97,13 +102,7 @@ class HTMLHeaderTextSplitter(BaseLoader):
         return list(self.lazy_load())
     
     def lazy_load(self) -> Iterator[Document]:
-        """Split HTML file
-        
-        Args:
-            sources: a sequence of either: string (URL or file) or readable IO object (file/connection)
-        """
-        
-        for source in sources:
+        for source in self.sources:
             yield from self._docsFromChunks(self.chunker.parseQueue(source, False))
     
     @staticmethod
@@ -118,11 +117,11 @@ class HTMLHeaderTextSplitter(BaseLoader):
             text: HTML text
         """
         
-        return HTMLHeaderSplitter([StringIO(text)], header_mapping, return_each_element).load()
+        return HTMLHeaderTextSplitter([StringIO(text)], header_mapping, return_each_element).load()
     
     # Helper Functions
     
-    def _docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document]:
+    def _docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document, None, None]:
         for chunk in self._aggregate_chunks_by_metadata(chunks):
             yield self._docFromChunk(chunk)
     def _docFromChunk(self, chunk: dict[str, any]) -> Document:
@@ -130,7 +129,7 @@ class HTMLHeaderTextSplitter(BaseLoader):
             page_content=chunk["text"],
             metadata={self.header_mapping.get(key, key): val for key, val in chunk["meta"].items()}
         )
-    def _aggregate_chunks_by_metadata(self, chunks: Collection[dict[str, any]] ) -> Generator[dict[str, any]]:
+    def _aggregate_chunks_by_metadata(self, chunks: Collection[dict[str, any]] ) -> Generator[dict[str, any], None, None]:
         """Combine adjacent chunks with identical metadata.
         Should only be called with a single document's chunks.
         
@@ -155,6 +154,3 @@ class HTMLHeaderTextSplitter(BaseLoader):
                     prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
             if prior_chunk:
                 yield prior_chunk
-
-if __name__ == "__main__":
-    print("hello world")
