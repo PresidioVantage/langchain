@@ -1,12 +1,11 @@
 from io import StringIO
 from typing import List, Dict, Iterable, Any, Iterator, Collection, Generator
 
+from langchain.schema import Document, BaseDocumentTransformer
 from langchain.document_loaders.base import BaseLoader
 
 from langchain.document_loaders.unstructured import UnstructuredFileLoader
 from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
-from langchain.schema import Document
-
 
 class UnstructuredHTMLLoader(UnstructuredFileLoader):
     """Load `HTML` files using `Unstructured`.
@@ -104,21 +103,13 @@ class HTMLTextHeaderSplitter(BaseLoader):
         for source in self.sources:
             yield from self._docsFromChunks(self.chunker.parseQueue(source, False))
     
-    # @staticmethod
-    # def split_text(
-    #     text: str,
-    #     header_mapping: Dict[str, Any] = None,
-    #     return_each_element: bool = False,
-    # ) -> List[Document]:
-    #     """Split HTML text string
-    #
-    #     Args:
-    #         text: HTML text
-    #     """
-    #
-    #     return HTMLHeaderTextSplitter([StringIO(text)], header_mapping, return_each_element).load()
-    
     # Helper Functions
+    
+    def _aggregate(self, documents: Sequence[Document]) -> Sequence[Document]:
+        if self.return_each_element:
+            return documents
+        else:
+            return DocumentMetadataCleaver().transform_documents(documents)
     
     def _docsFromChunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document, None, None]:
         for chunk in self._aggregate_chunks_by_metadata(chunks):
@@ -128,31 +119,31 @@ class HTMLTextHeaderSplitter(BaseLoader):
             page_content=chunk["text"],
             metadata={self.header_mapping.get(key, key): val for key, val in chunk["meta"].items()}
         )
-    def _aggregate_chunks_by_metadata(self, chunks: Collection[dict[str, any]] ) -> Generator[dict[str, any], None, None]:
-        """Combine adjacent chunks with identical metadata.
-        Should only be called with a single document's chunks.
-        
-        Args:
-            chunks: HTML element content with associated identifying info and metadata
-        """
-        if self.return_each_element:
-            yield from chunks
-        else:
-            prior_chunk: dict = None
-    
-            for chunk in chunks:
-                if prior_chunk and prior_chunk["meta"] == chunk["meta"]:
-                    # If the last chunk in the aggregated list
-                    # has the same metadata as the current chunk,
-                    # append the current text to the last chunk's text
-                    prior_chunk["text"] += "\n  " + chunk["text"]
-                else:
-                    # Otherwise, yield the prior chunk, and store this new one
-                    if prior_chunk:
-                        yield prior_chunk
-                    prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
-            if prior_chunk:
-                yield prior_chunk
+    # def _aggregate_chunks_by_metadata(self, chunks: Collection[dict[str, any]] ) -> Generator[dict[str, any], None, None]:
+    #     """Combine adjacent chunks with identical metadata.
+    #     Should only be called with a single document's chunks.
+    #
+    #     Args:
+    #         chunks: HTML element content with associated identifying info and metadata
+    #     """
+    #     if self.return_each_element:
+    #         yield from chunks
+    #     else:
+    #         prior_chunk: dict = None
+    #
+    #         for chunk in chunks:
+    #             if prior_chunk and prior_chunk["meta"] == chunk["meta"]:
+    #                 # If the last chunk in the aggregated list
+    #                 # has the same metadata as the current chunk,
+    #                 # append the current text to the last chunk's text
+    #                 prior_chunk["text"] += "\n  " + chunk["text"]
+    #             else:
+    #                 # Otherwise, yield the prior chunk, and store this new one
+    #                 if prior_chunk:
+    #                     yield prior_chunk
+    #                 prior_chunk = chunk.copy()  # copy to avoid modifying original chunk text
+    #         if prior_chunk:
+    #             yield prior_chunk
 
 class HTMLHeaderTextSplitterFromString(HTMLHeaderSplitter):
     def __init__(
@@ -161,7 +152,33 @@ class HTMLHeaderTextSplitterFromString(HTMLHeaderSplitter):
         header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
     ):
+        """Args:
+            sources: a sequence of html-text strings
+        """
+        
         super().__init__(
             StringIO(source) for source in sources,
             header_mapping,
             return_each_element)
+
+class DocumentMetadataCleaver(BaseDocumentTransformer):
+    def transform_documents(
+        self, documents: Sequence[Document], **kwargs: Any
+    ) -> Sequence[Document]:
+        prior_doc: Document = None
+        for doc in documents:
+            if prior_doc and prior_doc.metadata == doc.metadata:
+                # If the last chunk in the aggregated list
+                # has the same metadata as the current chunk,
+                # append the current text to the last chunk's text
+                prior_doc.page_content += "\n  " + doc.page_content
+            else:
+                # Otherwise, yield the prior chunk, and store this new one
+                if prior_doc:
+                    yield prior_doc
+                prior_doc = Document( # copy to avoid modifying original chunk text
+                    metadata = doc.metadata,
+                    page_content = doc.page_content
+                )
+        if prior_doc:
+            yield prior_doc
