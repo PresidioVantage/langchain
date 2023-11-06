@@ -72,10 +72,12 @@ class HTMLTextHeaderSplitter(BaseLoader):
         header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
         return_urls: bool = True,
+        use_selenium: bool = False,
     ):
         """Create a new HTMLHeaderTextSplitter.
         
         Args:
+            sources: if use_selenium=True, these must be URL strings
             header_mapping: dict of headers we want to track mapped to
                 (arbitrary) keys for metadata. Allowed header values: h1, h2, h3, h4,
                 h5, h6 e.g. [("h1", "Header 1"), ("h2", "Header 2)].
@@ -95,6 +97,7 @@ class HTMLTextHeaderSplitter(BaseLoader):
         self.header_capture: set[str] = {x[-2:] for x in header_mapping if x[-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
         self.return_each_element: bool = return_each_element
         self.return_urls: bool = return_urls
+        self.use_selenium: bool = use_selenium
         
         self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
     
@@ -102,8 +105,20 @@ class HTMLTextHeaderSplitter(BaseLoader):
         return list(self.lazy_load())
     
     def lazy_load(self) -> Iterator[Document]:
+        if self.use_selenium:
+            from langchain.document_loaders.url_selenium import get_selenium_driver
+            driver = get_selenium_driver() # TODO allow configuration arguments here?
+        else:
+            driver = None
+            
         for source in self.sources:
+            if self.use_selenium:
+                driver.get(source)
+                source = driver.page_source
             yield from self._docsFromChunks(self.chunker.parseQueue(source, False))
+        
+        if self.use_selenium:
+            driver.quit()
     
     # Helper Functions
     
