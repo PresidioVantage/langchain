@@ -68,7 +68,7 @@ class HTMLTextHeaderSplitter(BaseLoader):
     
     def __init__(
         self,
-        sources: Iterable[any],
+        sources: Iterable[any] | any,
         header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
         return_urls: bool = True,
@@ -88,7 +88,7 @@ class HTMLTextHeaderSplitter(BaseLoader):
         if not sources:
             raise Exception(f"HTMLHeaderTextSplitter(sources={sources})")
         
-        self.sources: Iterable[any] = sources
+        self.sources: Iterable[any] = sources if isInstance(sources, Iterable) else [sources]
         
         self.header_mapping: dict[str, str] = header_mapping if header_mapping \
             else HTMLHeaderTextSplitter._DEFAULT_HEADER_MAPPING.copy()
