@@ -38,6 +38,9 @@ class UnstructuredHTMLLoader(UnstructuredFileLoader):
         return partition_html(filename=self.file_path, **self.unstructured_kwargs)
 
 
+# This default header mapping "flattens" metadata when it finds higher-level headers "deeper" than lower-level headers
+# before them, i.e. a higher-level header (e.g. h1) is "deeper" (e.g. "D2") when it's nested in an element with a
+# lower-level header (e.g. h4).
 _DEFAULT_HEADER_MAPPING: Dict[str, str] = {
     "h1": "article_main_heading_h1",
 
@@ -70,12 +73,12 @@ class HTMLHeaderTextSplitter(BaseLoader):
     """
 
     def __init__(
-            self,
-            sources: Iterable[any] | any,
-            header_mapping: Dict[str, Any] = None,
-            return_each_element: bool = False,
-            return_urls: bool = True,
-            use_selenium: bool = False,
+        self,
+        sources: Iterable[any] | any,
+        header_mapping: Dict[str, Any] = None,
+        return_each_element: bool = False,
+        return_urls: bool = True,
+        use_selenium: bool = False,
     ):
         """Create a new HTMLHeaderTextSplitter.
         
@@ -122,7 +125,7 @@ class HTMLHeaderTextSplitter(BaseLoader):
             yield from (
                 self._aggregate(
                     self._docs_from_chunks(
-                        self.chunker.parseQueue(source, False)))
+                        self.chunker.parse_queue(source, False)))
             )
 
         if self.use_selenium:
@@ -154,10 +157,10 @@ class HTMLHeaderTextSplitter(BaseLoader):
 
 class HTMLHeaderTextSplitterFromString(HTMLHeaderTextSplitter):
     def __init__(
-            self,
-            sources: Iterable[str],
-            header_mapping: Dict[str, Any] = None,
-            return_each_element: bool = False,
+        self,
+        sources: Iterable[str],
+        header_mapping: Dict[str, Any] = None,
+        return_each_element: bool = False,
     ):
         """Args:
             sources: a sequence of html-text strings
@@ -170,10 +173,12 @@ class HTMLHeaderTextSplitterFromString(HTMLHeaderTextSplitter):
 
 
 class DocumentMetadataCleaver(BaseDocumentTransformer):
+
     def transform_documents(
-            self, documents: Iterable[Document], **kwargs: Any
+        self, documents: Iterable[Document], **kwargs: Any
     ) -> Iterator[Document]:
-        prior_doc: Document = None
+
+        prior_doc: Document | None = None
         for doc in documents:
             if prior_doc and prior_doc.metadata == doc.metadata:
                 # If the last chunk in the aggregated list
