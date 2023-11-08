@@ -62,24 +62,13 @@ ALL_HEADER_TAGS = [
     "h1", "h2", "h3", "h4", "h5", "h6"]
 
 # CONFIGS
-LOG = logging.getLogger("pvis.htmlchunk")
+LOG = logging.getLogger(__name__)
 TUPLES_NOT_DICT = False
 FLATTEN_TAGS = [
     "header", "hgroup"]
 DEFAULT_CHUNK_TAGS = [
     "div", "p", "blockquote", "ol", "ul"]  # TODO consider adding "article" to this list?
 DEFAULT_STRICT = True
-
-
-def print_chunk(x: dict[str, any]):
-    print({k: x[k] for k in ["text", "meta", "uri"]})
-
-    # more verbose print for debugging:
-    # print(f"#{x['text']}")
-    # for y in x['meta'] if TUPLES_NOT_DICT else x['meta'].items():
-    #     print(f"\t{y}")
-    # print()
-
 
 class HtmlChunker:
     """
@@ -95,7 +84,7 @@ class HtmlChunker:
     lxml.html for loose parsing:
         filename_or_url: "a filename, URL, or file-like object"
         (https://lxml.de/apidoc/lxml.html.html#lxml.html.parse)
-        http/https URLs are not supported by lxml, so they are converted
+        http/https URLs are not supported by lxml, so they are converted to http connections (IO)
     xml.sax for strict parsing:
         filename_or_stream: "can be a filename or a file object"
         (https://docs.python.org/3/library/xml.sax.html)
@@ -103,18 +92,18 @@ class HtmlChunker:
 
     def __init__(
         self,
-        header_tags=None,
-        chunk_tags=None
+        header_tags: Collection[str] | None = None,
+        chunk_tags: Collection[str] | None = None
     ):
 
         if chunk_tags is None:
-            chunk_tags = DEFAULT_CHUNK_TAGS
-        if header_tags is None:
-            header_tags = ALL_HEADER_TAGS
-
-        if not all(x in ALL_HEADER_TAGS for x in header_tags):
+            chunk_tags = DEFAULT_CHUNK_TAGS.copy()
+        elif not all(x in ALL_HEADER_TAGS for x in header_tags):
             raise Exception(f"invalid header_tags: {header_tags}")
-        if any(x in ALL_HEADER_TAGS for x in chunk_tags):
+
+        if header_tags is None:
+            header_tags = ALL_HEADER_TAGS.copy()
+        elif any(x in ALL_HEADER_TAGS for x in chunk_tags):
             raise Exception(f"invalid chunk_tags: {chunk_tags}")
 
         self.header_tags: Collection[str] = header_tags
@@ -174,6 +163,7 @@ class HtmlChunker:
             self.header_tags,
             self.chunk_tags)
 
+    # TODO promote static method to global for recent python compatibility
     @staticmethod
     def _parse(
         source: any,
@@ -237,7 +227,6 @@ class ElemPos:
     'tag' is the the only other "semantic" data.
     'index' and 'child_elem_count' are merely for identification/debugging purposes.
     """
-    child_elem_count: int
 
     def __init__(
         self,
@@ -254,10 +243,10 @@ class ElemPos:
         self.head: Header = head
         self.index: int = 1
         # mutable state, gets incremented by every child __init__:
-        self.child_elem_count = 0
+        self.child_elem_count: int = 0
 
         if self.parent:
-            self.parent.child_elem_count += 1
+            self.parent.child_elem_count = 1 + self.parent.child_elem_count
             self.index = self.parent.child_elem_count
 
     def get_meta(self):
@@ -287,7 +276,6 @@ class Header:
     an HTML Header Element node (i.e. H1 ... H6), including:
       a pointer to its "Nearest Prior Higher" Header (or None if there is none)
     """
-    level: int
 
     def __init__(
         self,
@@ -296,18 +284,18 @@ class Header:
     ):
 
         if elem is None:
-            raise Exception("ChunkText(None)")
+            raise Exception("Header(None)")
         if elem.tag not in ALL_HEADER_TAGS:
             raise Exception(f"bad header tag {elem.tag}")
 
         self.prior_higher: Header = prior_higher
         self.pos: ElemPos = elem
-        self.level = int(elem.tag[1])
+        self.level: int = int(elem.tag[1])
         self.depth: int = 1
         # mutable state, appended-to until header-tag is closed:
         self.text: str = ""
 
-        # supersede parent if they are *siblings* and lower-level (higher number)
+        # supersede prior if is a sibling and lower-level (higher number)
         while \
                 self.prior_higher and \
                 self.prior_higher.pos.parent == self.pos.parent and \
@@ -379,24 +367,24 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
 
     def __init__(
         self,
-        yield_function: Callable[[dict], any] = print_chunk,
-        header_tags=None,
-        chunk_tags=None
+        yield_function: Callable[[dict], any] = lambda x: None,
+        header_tags: Collection[str] | None = None,
+        chunk_tags: Collection[str] | None = None
     ):
 
         super().__init__()
-
+        
         if chunk_tags is None:
-            chunk_tags = DEFAULT_CHUNK_TAGS
-        if header_tags is None:
-            header_tags = ALL_HEADER_TAGS
-
-        if not all(x in ALL_HEADER_TAGS for x in header_tags):
+            chunk_tags = DEFAULT_CHUNK_TAGS.copy()
+        elif not all(x in ALL_HEADER_TAGS for x in header_tags):
             raise Exception(f"invalid header_tags: {header_tags}")
-        if any(x in ALL_HEADER_TAGS for x in chunk_tags):
+        
+        if header_tags is None:
+            header_tags = ALL_HEADER_TAGS.copy()
+        elif any(x in ALL_HEADER_TAGS for x in chunk_tags):
             raise Exception(f"invalid chunk_tags: {chunk_tags}")
 
-        self.yield_function: Callable[[dict], any] = yield_function if yield_function else lambda x: None
+        self.yield_function: Callable[[dict], any] = yield_function
         self.header_tags: Collection[str] = header_tags
         self.chunk_tags: Collection[str] = chunk_tags
 
@@ -452,7 +440,8 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
                 # if this header supersedes the prior,
                 # and the prior-header hasn't been sent yet,
                 # then force it to be sent even if empty.
-                force_chunk = not self.header_sent and \
+                force_chunk = \
+                    not self.header_sent and \
                     self.prior_headers != self.building_header.prior_higher
                 self.send_chunk(force_chunk)
 
@@ -530,7 +519,10 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
         elif self.chunk:
             self.text += content
 
-    def send_chunk(self, send_blank=False) -> dict[str, any] | None:
+    def send_chunk(
+        self,
+        send_blank = False
+    ) -> dict[str, any] | None:
         LOG.debug(f"send_chunk({'!' if send_blank else ''}{self.chunk})")
         if self.chunk:
             retval = {
@@ -553,22 +545,21 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
 if __name__ == "__main__":
     import sys
 
-    verbose = False
+    main_verbose = False
     main_strict = False
-    # default_source = "test1basic.html"
-    default_source = "https://presidiovantage.com/about.xhtml"
+    # if no sources are specified by command-line args, use defaults
+    main_sources = sys.argv[1:] if 1 < len(sys.argv) else [
+        "test1basic.html",
+        # "https://presidiovantage.com/about.xhtml",
+        # "https://en.wikipedia.org/wiki/Kurt_G%C3%B6del",
+        # "https://plato.stanford.edu/entries/goedel/",
+    ]
+    
+    if main_verbose:
+        logging.basicConfig(level=logging.DEBUG)
+        main_callback = LOG.info
+    else:
+        main_callback = print
 
     chunker = HtmlChunker()
-
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    #     main_handler = chunker._new_handler(LOG.info)
-    # else:
-    #     main_handler = chunker._new_handler(print_chunk)
-
-    main_sources = sys.argv[1:] if 1 < len(sys.argv) else [default_source]
-    chunker.parse_events(main_sources, lambda x: print(x), main_strict)
-    # for main_source in main_sources:
-    #     print(f"###parsing### {main_source}")
-    #     HtmlChunker._parse(main_source, main_handler, main_strict)
-    #     print()
+    chunker.parse_events(main_sources, main_callback, main_strict)
