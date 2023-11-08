@@ -127,7 +127,10 @@ class HTMLHeaderTextSplitter(BaseLoader):
             yield from (
                 self._aggregate(
                     self._docs_from_chunks(
-                        self.chunker.parse_queue(source, False, "chrome")))
+                        self.chunker.parse_queue(
+                            source,
+                            False,
+                            "chrome" if self.user_selenium else None)))
             )
 
     # Helper Functions

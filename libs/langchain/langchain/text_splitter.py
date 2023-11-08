@@ -8,7 +8,7 @@
     BaseDocumentTransformer --> TextSplitter --> <name>TextSplitter  # Example: CharacterTextSplitter
                                                  RecursiveCharacterTextSplitter -->  <name>TextSplitter
 
-Note: **MarkdownHeaderTextSplitter** and **HTMLHeaderTextSplitter do not derive from TextSplitter.
+Note: **MarkdownHeaderTextSplitter** does not derive from TextSplitter.
 
 
 **Main helpers:**
@@ -484,7 +484,7 @@ class MarkdownHeaderTextSplitter:
             ]
 
 
-# DEPRECATED: see HtmlHeaderTextSplitter below
+# DEPRECATED: see docs for HtmlHeaderTextSplitter below
 DEFAULT_HEADER_MAPPING = {
     "h1": "article_main_heading_h1",
     
@@ -510,8 +510,12 @@ DEFAULT_HEADER_MAPPING = {
 }
 class HTMLHeaderTextSplitter:
     """
-    DEPRECATED 2023-11-08: see langchain.document_loaders.html.HTMLHeaderTextSplitter
+    DEPRECATED 2023-11-08:
+    see langchain.document_loaders.html.HeaderChunkedHTMLLoader
     TODO remove this legacy code ~2023-12-31
+    @mziru
+    @PresidioVantage
+    @hwchase17
     
     Splitting HTML files based on specified headers.
     Requires lxml package.

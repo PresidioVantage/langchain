@@ -3,6 +3,15 @@
 import logging
 from typing import TYPE_CHECKING, List, Literal, Optional, Union
 
+"""Load a list of URLs using Selenium and unstructured."""
+try:
+    import selenium  # noqa:F401
+except ImportError:
+    raise ImportError(
+        "selenium package not found, please install it with "
+        "`pip install selenium`"
+    )
+
 if TYPE_CHECKING:
     from selenium.webdriver import Chrome, Firefox
 
@@ -95,15 +104,6 @@ class SeleniumURLLoader(BaseLoader):
         headless: bool = True,
         arguments: List[str] = [],
     ):
-        """Load a list of URLs using Selenium and unstructured."""
-        try:
-            import selenium  # noqa:F401
-        except ImportError:
-            raise ImportError(
-                "selenium package not found, please install it with "
-                "`pip install selenium`"
-            )
-
         try:
             import unstructured  # noqa:F401
         except ImportError:
