@@ -512,10 +512,7 @@ class HTMLHeaderTextSplitter:
     """
     DEPRECATED 2023-11-08:
     see langchain.document_loaders.html.HeaderChunkedHTMLLoader
-    TODO remove this legacy code ~2023-12-31
-    @mziru
-    @PresidioVantage
-    @hwchase17
+    TODO remove this legacy code ~2023-12-31 @mziru @PresidioVantage @hwchase17
     
     Splitting HTML files based on specified headers.
     Requires lxml package.

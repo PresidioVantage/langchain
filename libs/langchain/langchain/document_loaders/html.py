@@ -49,49 +49,49 @@ class UnstructuredHTMLLoader(UnstructuredFileLoader):
         return partition_html(filename=self.file_path, **self.unstructured_kwargs)
 
 
-# This default header mapping "flattens" metadata when it finds higher-level headers "deeper" than lower-level headers
-# before them, i.e. a higher-level header (e.g. h1) is "deeper" (e.g. "D2") when it's nested in an element with a
-# lower-level header (e.g. h4).
-_DEFAULT_HEADER_MAPPING: Dict[str, str] = {
-    "h1": "article_main_heading_h1",
 
-    "h2": "article_subsection_heading_h2",
-    "h3": "article_subsection_heading_h3",
-    "h4": "article_subsection_heading_h4",
-    "h5": "article_subsection_heading_h5",
-    "h6": "article_subsection_heading_h6",
-
-    "D2 h1": "sub_article_subsection_heading_h07",
-    "D2 h2": "sub_article_subsection_heading_h08",
-    "D2 h3": "sub_article_subsection_heading_h09",
-    "D2 h4": "sub_article_subsection_heading_h10",
-    "D2 h5": "sub_article_subsection_heading_h11",
-    "D2 h6": "sub_article_subsection_heading_h12",
-
-    "D3 h1": "sub_sub_article_subsection_heading_h13",
-    "D3 h2": "sub_sub_article_subsection_heading_h14",
-    "D3 h3": "sub_sub_article_subsection_heading_h15",
-    "D3 h4": "sub_sub_article_subsection_heading_h16",
-    "D3 h5": "sub_sub_article_subsection_heading_h17",
-    "D3 h6": "sub_sub_article_subsection_heading_h18",
-}
-
-
-class HTMLHeaderTextSplitter(BaseLoader):
+class HeaderChunkedHTMLLoader(BaseLoader):
     """
     Splitting HTML files based on specified headers.
     Requires lxml package.
     """
 
+    # This default header mapping "flattens" metadata when it finds higher-level headers "deeper" than lower-level headers
+    # before them, i.e. a higher-level header (e.g. h1) is "deeper" (e.g. "D2") when it's nested in an element with a
+    # lower-level header (e.g. h4).
+    _DEFAULT_HEADER_MAPPING: Dict[str, str] = {
+        "h1": "article_main_heading_h1",
+    
+        "h2": "article_subsection_heading_h2",
+        "h3": "article_subsection_heading_h3",
+        "h4": "article_subsection_heading_h4",
+        "h5": "article_subsection_heading_h5",
+        "h6": "article_subsection_heading_h6",
+    
+        "D2 h1": "sub_article_subsection_heading_h07",
+        "D2 h2": "sub_article_subsection_heading_h08",
+        "D2 h3": "sub_article_subsection_heading_h09",
+        "D2 h4": "sub_article_subsection_heading_h10",
+        "D2 h5": "sub_article_subsection_heading_h11",
+        "D2 h6": "sub_article_subsection_heading_h12",
+    
+        "D3 h1": "sub_sub_article_subsection_heading_h13",
+        "D3 h2": "sub_sub_article_subsection_heading_h14",
+        "D3 h3": "sub_sub_article_subsection_heading_h15",
+        "D3 h4": "sub_sub_article_subsection_heading_h16",
+        "D3 h5": "sub_sub_article_subsection_heading_h17",
+        "D3 h6": "sub_sub_article_subsection_heading_h18",
+    }
+
     def __init__(
         self,
-        sources: Iterable[any] | any,
+        sources: Union[any, Iterable[any]],
         header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
         return_urls: bool = True,
         use_selenium: bool = False,
     ):
-        """Create a new HTMLHeaderTextSplitter.
+        """Create a new HeaderChunkedHTMLLoader.
         
         Args:
             sources: if use_selenium=True, these must be URL strings
@@ -105,20 +105,23 @@ class HTMLHeaderTextSplitter(BaseLoader):
         """
 
         if not sources:
-            raise Exception(f"HTMLHeaderTextSplitter(sources={sources})")
+            raise Exception(f"HeaderChunkedHTMLLoader(sources={sources})")
 
         self.sources: Iterable[any] = sources if isinstance(sources, Iterable) else [sources]
 
-        self.header_mapping: dict[str, str] = header_mapping if header_mapping \
-            else _DEFAULT_HEADER_MAPPING.copy()
-        self.header_capture: set[str] = {x[-2:] for x in header_mapping if
-                                         x[-2:] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
+        self.header_mapping: dict[str, str] = self._DEFAULT_HEADER_MAPPING.copy() \
+            if header_mapping is None else header_mapping
+        self.header_capture: set[str] = {
+            x[-2:] for x in header_mapping if x[-2:] in [
+                'h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
+        
         self.return_each_element: bool = return_each_element
         self.return_urls: bool = return_urls
         self.use_selenium: bool = use_selenium
 
         self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
 
+    # TODO remove this when it is implemented in abstract parent class
     def load(self) -> List[Document]:
         return list(self.lazy_load())
 
@@ -150,14 +153,15 @@ class HTMLHeaderTextSplitter(BaseLoader):
         if self.return_urls:
             meta["url"] = chunk["uri"]
         for key, val in chunk["meta"].items():
-            meta[self.header_mapping.get(key, key)] = val
+            mappedKey = self.header_mapping[key, None]
+            meta[key if mappedKey is None else mappedKey] = val
         return Document(
             page_content=chunk["text"],
             metadata=meta
         )
 
 
-class HTMLHeaderTextSplitterFromString(HTMLHeaderTextSplitter):
+class HeaderChunkedHTMLLoaderFromString(HeaderChunkedHTMLLoader):
     def __init__(
         self,
         sources: Iterable[str],
@@ -171,16 +175,25 @@ class HTMLHeaderTextSplitterFromString(HTMLHeaderTextSplitter):
         super().__init__(
             (StringIO(source) for source in sources),
             header_mapping,
-            return_each_element)
+            return_each_element,
+            False,
+            False)
 
 
 class DocumentMetadataCleaver(BaseDocumentTransformer):
+    """
+    This "reverse TextSplitter" combines adjacent documents if they have the same metadata.
+    """
 
+    # XXX TODO 2023-11-08 n.b. the parent abstract method signature is :Sequence->Sequence
+    # that seems incorrect/inefficient, especially the return-type.
+    # does a list-comprehension resolve this efficiently?
+    # their example shows: return [stateful_documents[i] for i in sorted(included_idxs)]
     def transform_documents(
         self, documents: Iterable[Document], **kwargs: Any
     ) -> Iterator[Document]:
 
-        prior_doc: Document | None = None
+        prior_doc: Optional[Document] = None
         for doc in documents:
             if prior_doc and prior_doc.metadata == doc.metadata:
                 # If the last chunk in the aggregated list
@@ -195,5 +208,6 @@ class DocumentMetadataCleaver(BaseDocumentTransformer):
                     metadata=doc.metadata,
                     page_content=doc.page_content
                 )
+        # send the final chunk, when done looping
         if prior_doc:
             yield prior_doc
