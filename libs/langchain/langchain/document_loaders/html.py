@@ -1,5 +1,16 @@
 from io import StringIO
-from typing import List, Dict, Iterable, Any, Iterator, Collection, Generator, Sequence
+from typing import (
+    List,
+    Dict,
+    Iterable, 
+    Any,
+    Iterator,
+    Collection,
+    Generator,
+    Sequence,
+    Optional,
+    Literal,
+)
 
 from langchain.schema import Document, BaseDocumentTransformer
 from langchain.document_loaders.base import BaseLoader
@@ -117,19 +128,20 @@ class HTMLHeaderTextSplitter(BaseLoader):
             driver = get_selenium_driver()  # TODO allow configuration arguments here?
         else:
             driver = None
-
-        for source in self.sources:
+        
+        try:
+            for source in self.sources:
+                if self.use_selenium:
+                    driver.get(source)
+                    source = driver.page_source
+                yield from (
+                    self._aggregate(
+                        self._docs_from_chunks(
+                            self.chunker.parse_queue(source, False)))
+                )
+        finally:
             if self.use_selenium:
-                driver.get(source)
-                source = driver.page_source
-            yield from (
-                self._aggregate(
-                    self._docs_from_chunks(
-                        self.chunker.parse_queue(source, False)))
-            )
-
-        if self.use_selenium:
-            driver.quit()
+                driver.quit()
 
     # Helper Functions
 
