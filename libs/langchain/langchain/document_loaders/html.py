@@ -123,25 +123,12 @@ class HTMLHeaderTextSplitter(BaseLoader):
         return list(self.lazy_load())
 
     def lazy_load(self) -> Iterator[Document]:
-        if self.use_selenium:
-            from langchain.document_loaders.url_selenium import get_selenium_driver
-            driver = get_selenium_driver()  # TODO allow configuration arguments here?
-        else:
-            driver = None
-        
-        try:
-            for source in self.sources:
-                if self.use_selenium:
-                    driver.get(source)
-                    source = driver.page_source
-                yield from (
-                    self._aggregate(
-                        self._docs_from_chunks(
-                            self.chunker.parse_queue(source, False)))
-                )
-        finally:
-            if self.use_selenium:
-                driver.quit()
+        for source in self.sources:
+            yield from (
+                self._aggregate(
+                    self._docs_from_chunks(
+                        self.chunker.parse_queue(source, False, "chrome")))
+            )
 
     # Helper Functions
 

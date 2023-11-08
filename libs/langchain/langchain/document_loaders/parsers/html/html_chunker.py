@@ -44,6 +44,8 @@ ChunkPos models a tree similar to Header, but also containing non-header "chunki
 from typing import (
     Callable,
     Generator,
+    Literal,
+    Optional,
 )
 from collections import deque
 from collections.abc import (
@@ -55,7 +57,11 @@ import logging
 
 import xml.sax.xmlreader
 import xml.sax.handler
+
 import urllib.request
+import pathlib
+from os.path import abspath
+from io import StringIO
 
 # CONSTANTS
 ALL_HEADER_TAGS = [
@@ -69,6 +75,119 @@ FLATTEN_TAGS = [
 DEFAULT_CHUNK_TAGS = [
     "div", "p", "blockquote", "ol", "ul"]  # TODO consider adding "article" to this list?
 DEFAULT_STRICT = True
+
+def sax_parse_html (
+    source: any,
+    handler: xml.sax.handler.ContentHandler,
+    strict: bool = False,
+    selenium_browser: Literal[None, "chrome", "firefox"] = None
+):
+    
+    if selenium_browser:
+        if isinstance(source, str):
+            if (source.startswith("http://") or source.startswith("https://")):
+                pass
+            else:
+                source = pathlib.Path(abspath(source)).as_uri()
+            handler.setDocumentLocator(SourceLocator(source))
+        else:
+            raise Exception(f"invalid source for selenium: {source}")
+        
+        with get_selenium_driver(selenium_browser) as driver:
+            driver.get(source)
+            html = driver.page_source  # TODO use javascript dom instead?
+        
+        LOG.debug(f"selenium got html: {html}")
+        sax_parse_html(StringIO(html), handler, strict, None)
+    
+    else:
+        if strict:
+            # xml.sax sets null url for open HttpConnections
+            # (it works fine for Strings and FileIO)
+            if not isinstance(source, str) and getattr(source, "url", None):
+                handler.setDocumentLocator(SourceLocator(source.url))
+            xml.sax.parse(source, handler)
+        
+        else:
+            try:
+                import lxml.html
+                import lxml.sax
+            except ImportError as e:
+                raise ImportError(
+                    "Unable to import lxml, please install with `pip install lxml`."
+                ) from e
+            
+            # lxml does not support http references
+            if isinstance(source, str) and (source.startswith("http://") or source.startswith("https://")):
+                with urllib.request.urlopen(source) as c:
+                    tree = lxml.html.parse(c)
+            else:
+                tree = lxml.html.parse(source)
+    
+            # lxml sax has zero support for DocumentLocator
+            if isinstance(source, str):
+                handler.setDocumentLocator(SourceLocator(source))
+            elif getattr(source, "url", None):
+                handler.setDocumentLocator(SourceLocator(source.url))
+            elif getattr(source, "name", None):
+                handler.setDocumentLocator(SourceLocator(source.name))
+            # unfortunately this returns a file:/ URL for filename sources,
+            # technically correct, but inconsistent with typical SAX.
+            # handler.setDocumentLocator(SourceLocator(tree.docinfo.URL))
+    
+            lxml.sax.saxify(tree, handler)
+
+def get_selenium_driver(
+    browser: Literal["chrome", "firefox"] = "chrome",
+    binary_location: Optional[str] = None,
+    executable_path: Optional[str] = None,
+    arguments: list[str] = ["--headless", "--no-sandbox"]
+) -> "WebDriver": 
+    '''
+    Create and return a WebDriver instance based on the specified browser.
+    for chrome, if 'arguments' contains "--headless", then "--no-sandbox" is also recommended.
+    Args:
+        
+    Raises:
+        ValueError: If an invalid browser is specified.
+    Returns:
+        WebDriver: A Chrome|Firefox instance for the specified browser.
+    '''
+    
+    from selenium.webdriver.remote.webdriver import WebDriver
+    from selenium.webdriver.common.service import Service
+    from selenium.webdriver.common.options import ArgOptions
+    drivercls: type[WebDriver]
+    servicecls: type[Service]
+    optionscls: type[ArgOptions]
+    
+    match browser.lower():
+        case "chrome":
+            from selenium.webdriver import Chrome
+            from selenium.webdriver.chrome.service import Service as ChromeService
+            from selenium.webdriver.chrome.options import Options as ChromeOptions
+            drivercls, servicecls, optionscls =  Chrome, ChromeService, ChromeOptions
+        case "firefox":
+            from selenium.webdriver import Firefox
+            from selenium.webdriver.firefox.service import Service as FirefoxService
+            from selenium.webdriver.firefox.options import Options as FirefoxOptions
+            drivercls, servicecls, optionscls = Firefox, FirefosService, FirefoxOptions
+        case _:
+            raise ValueError(f"Invalid browser ({browser}) specified. Use 'chrome' or 'firefox'.")
+    
+    options: ArgOptions = optionscls()
+    if binary_location:
+        options.binary_location = binary_location
+    for arg in arguments:
+        options.add_argument(arg)
+    
+    if executable_path:
+        return drivercls(
+            options=options,
+            service=servicecls(executable_path=executable_path))
+    else:
+        return drivercls(
+            options=options)
 
 class HtmlChunker:
     """
@@ -92,8 +211,8 @@ class HtmlChunker:
 
     def __init__(
         self,
-        header_tags: Collection[str] | None = None,
-        chunk_tags: Collection[str] | None = None
+        header_tags: Optional[Collection[str]] = None,
+        chunk_tags: Optional[Collection[str]] = None
     ):
 
         if chunk_tags is None:
@@ -113,43 +232,48 @@ class HtmlChunker:
         self,
         sources: Iterable[any],
         strict: bool = DEFAULT_STRICT,
+        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ) -> Generator[dict[str, any], None, None]:
 
-        for q in self.parse_queue_sequence(sources, strict):
+        for q in self.parse_queue_sequence(sources, strict, selenium_browser):
             yield from q
 
     def parse_queue_sequence(
         self,
         sources: Iterable[any],
         strict: bool = DEFAULT_STRICT,
+        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ) -> Generator[deque[dict[str, any]], None, None]:
 
         for source in sources:
-            yield self.parse_queue(source, strict)
+            yield self.parse_queue(source, strict, selenium_browser)
 
     def parse_queue(
         self,
         source: any,
-        strict: bool = DEFAULT_STRICT
+        strict: bool = DEFAULT_STRICT,
+        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ) -> deque[dict[str, any], None, None]:
 
         the_q = deque()
-        self.parse_events([source], the_q.append, strict)
+        self.parse_events([source], the_q.append, strict, selenium_browser)
         return the_q
 
     def parse_events(
         self,
         sources: Iterable[any],
         callback: Callable[[dict[str, any]], any],
-        strict: bool = DEFAULT_STRICT
+        strict: bool = DEFAULT_STRICT,
+        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ):
 
         handler = self._new_handler(callback)
         for source in sources:
-            HtmlChunker._parse(
+            sax_parse_html(
                 source,
                 handler,
-                strict)
+                strict,
+                selenium_browser)
 
     # Helper Methods:
 
@@ -163,51 +287,7 @@ class HtmlChunker:
             self.header_tags,
             self.chunk_tags)
 
-    # TODO promote static method to global for recent python compatibility
-    @staticmethod
-    def _parse(
-        source: any,
-        handler: xml.sax.handler.ContentHandler,
-        strict: bool
-    ):
-
-        if strict:
-            # xml.sax sets null url for open HttpConnections
-            # (it works fine for Strings and FileIO)
-            if not isinstance(source, str) and getattr(source, "url", None):
-                handler.setDocumentLocator(SourceLocator(source.url))
-            xml.sax.parse(source, handler)
-        else:
-            try:
-                import lxml.html
-                import lxml.sax
-            except ImportError as e:
-                raise ImportError(
-                    "Unable to import lxml, please install with `pip install lxml`."
-                ) from e
-
-            if isinstance(source, str) and (source.startswith("http://") or source.startswith("https://")):
-                with urllib.request.urlopen(source) as c:
-                    tree = lxml.html.parse(c)
-            else:
-                tree = lxml.html.parse(source)
-
-            # LXML SAX has zero support for DocumentLocator
-            if isinstance(source, str):
-                handler.setDocumentLocator(SourceLocator(source))
-            elif getattr(source, "url", None):
-                handler.setDocumentLocator(SourceLocator(source.url))
-            elif getattr(source, "name", None):
-                handler.setDocumentLocator(SourceLocator(source.name))
-            # unfortunately this returns a file:/ URL for filename sources,
-            # technically correct, but inconsistent with typical SAX.
-            # handler.setDocumentLocator(SourceLocator(tree.docinfo.URL))
-
-            lxml.sax.saxify(tree, handler)
-
-
 # TODO is there a better way to make a compliant Locator for these one-off cases? (e.g. anonymous-subclass-instances)
-
 class SourceLocator(xml.sax.xmlreader.Locator):
     def __init__(self, source):
         self.source = source
@@ -368,8 +448,8 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
     def __init__(
         self,
         yield_function: Callable[[dict], any] = lambda x: None,
-        header_tags: Collection[str] | None = None,
-        chunk_tags: Collection[str] | None = None
+        header_tags: Optional[Collection[str]] = None,
+        chunk_tags: Optional[Collection[str]] = None
     ):
 
         super().__init__()
@@ -389,13 +469,13 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
         self.chunk_tags: Collection[str] = chunk_tags
 
         # mutable state, esp. tracking pointers between/during parse events:
-        self.uri: str | None = None
-        self.current: ElemPos | None = None
-        self.prior_headers: Header | None = None
+        self.uri: Optional[str] = None
+        self.current: Optional[ElemPos] = None
+        self.prior_headers: Optional[Header] = None
         self.header_sent: bool = False
-        self.chunk: ChunkPos | None = None
-        self.text: str | None = None
-        self.building_header: Header | None = None
+        self.chunk: Optional[ChunkPos] = None
+        self.text: Optional[str] = None
+        self.building_header: Optional[Header] = None
 
     # ignore namespace information
     def startElementNS(self, nsname: tuple[str, str], qname, attrs):
@@ -407,7 +487,7 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
     def setDocumentLocator(self, loc: xml.sax.xmlreader.Locator):
         # xml.sax does this when given an open URLConnection, unfortunately
         if loc is None or loc.getSystemId() is None:
-            LOG.warning(f"setDocumentLocator(None) replacing {self.uri} ({loc})")
+            LOG.warning(f"suppressed setDocumentLocator(None), maintained {self.uri} ({loc})")
         else:
             LOG.debug(f"setDocumentLocator({loc.getSystemId()}) replacing {self.uri}")
 
@@ -522,7 +602,7 @@ class ChunkHandler(xml.sax.handler.ContentHandler):
     def send_chunk(
         self,
         send_blank = False
-    ) -> dict[str, any] | None:
+    ) -> Optional[dict[str, any]]:
         LOG.debug(f"send_chunk({'!' if send_blank else ''}{self.chunk})")
         if self.chunk:
             retval = {
