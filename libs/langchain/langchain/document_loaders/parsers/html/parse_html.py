@@ -91,7 +91,7 @@ def selenium_get_sax (
     """
     requires selenium and lxml
     """
-    from render_selenium import selenium_get_html_sequence
+    from langchain.document_loaders.parser.html.render_selenium import selenium_get_html_sequence
     
     for source, html in selenium_get_html_sequence(sources, browser, args):
         handler.setDocumentLocator(SystemIdLocator(source))

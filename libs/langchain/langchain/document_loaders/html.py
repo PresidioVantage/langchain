@@ -16,7 +16,6 @@ from langchain.schema import Document, BaseDocumentTransformer
 from langchain.document_loaders.base import BaseLoader
 
 from langchain.document_loaders.unstructured import UnstructuredFileLoader
-from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
 
 
 class UnstructuredHTMLLoader(UnstructuredFileLoader):
@@ -103,6 +102,8 @@ class HeaderChunkedHTMLLoader(BaseLoader):
                 'False' to combine all adjacent chunks with identical metadata.
             return_urls: whether to include a source-url metadata in each returned Document
         """
+        from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
+
 
         if not sources:
             raise Exception(f"HeaderChunkedHTMLLoader(sources={sources})")
@@ -119,22 +120,18 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         self.return_urls: bool = return_urls
         self.use_selenium: bool = use_selenium
 
-        self.chunker: HtmlChunker = HtmlChunker(self.header_capture)
+        self.chunker: HtmlChunker = HtmlChunker(
+            "selenium" if use_selenium else "lxml",
+            self.header_capture)
 
     # TODO remove this when it is implemented in abstract parent class
     def load(self) -> List[Document]:
         return list(self.lazy_load())
 
     def lazy_load(self) -> Iterator[Document]:
-        for source in self.sources:
-            yield from (
-                self._aggregate(
-                    self._docs_from_chunks(
-                        self.chunker.parse_queue(
-                            source,
-                            False,
-                            "chrome" if self.user_selenium else None)))
-            )
+        yield from self._aggregate(
+            self._docs_from_chunks(
+                self.chunker.parse_chunk_sequence(sources)))
 
     # Helper Functions
 
