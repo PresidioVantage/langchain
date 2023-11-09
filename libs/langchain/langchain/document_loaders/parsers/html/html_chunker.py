@@ -5,7 +5,8 @@ A lightweight (SAX) HTML parse, "chunked" into sequence of contiguous text segme
 Chunks are always delimited by relevant headers, but also by a (configurable) set of tags between-which to chunk.
 for reference, see https://www.w3.org/WAI/tutorials/page-structure/headings/
 
-requires lxml
+requires lxml unless "strict" argument is set to True
+uses/requires selenium if requested
 
 ## USAGE:
 
@@ -63,131 +64,22 @@ import pathlib
 from os.path import abspath
 from io import StringIO
 
+import parse_html
+
+
+LOG = logging.getLogger(__name__)
+
 # CONSTANTS
 ALL_HEADER_TAGS = [
     "h1", "h2", "h3", "h4", "h5", "h6"]
 
 # CONFIGS
-LOG = logging.getLogger(__name__)
+DEFAULT_CHUNK_TAGS = [
+    "div", "p", "blockquote", "ol", "ul"]  # TODO consider adding "article" to this list?
 TUPLES_NOT_DICT = False
 FLATTEN_TAGS = [
     "header", "hgroup"]
-DEFAULT_CHUNK_TAGS = [
-    "div", "p", "blockquote", "ol", "ul"]  # TODO consider adding "article" to this list?
 DEFAULT_STRICT = True
-
-def sax_parse_html (
-    source: any,
-    handler: xml.sax.handler.ContentHandler,
-    strict: bool = False,
-    selenium_browser: Literal[None, "chrome", "firefox"] = None
-):
-    
-    if selenium_browser:
-        if isinstance(source, str):
-            if (source.startswith("http://") or source.startswith("https://")):
-                pass
-            else:
-                source = pathlib.Path(abspath(source)).as_uri()
-            handler.setDocumentLocator(SourceLocator(source))
-        else:
-            raise Exception(f"invalid source for selenium: {source}")
-        
-        with get_selenium_driver(selenium_browser) as driver:
-            driver.get(source)
-            html = driver.page_source  # TODO use javascript dom instead?
-        
-        LOG.debug(f"selenium got html: {html}")
-        sax_parse_html(StringIO(html), handler, strict, None)
-    
-    else:
-        if strict:
-            # xml.sax sets null url for open HttpConnections
-            # (it works fine for Strings and FileIO)
-            if not isinstance(source, str) and getattr(source, "url", None):
-                handler.setDocumentLocator(SourceLocator(source.url))
-            xml.sax.parse(source, handler)
-        
-        else:
-            try:
-                import lxml.html
-                import lxml.sax
-            except ImportError as e:
-                raise ImportError(
-                    "Unable to import lxml, please install with `pip install lxml`."
-                ) from e
-            
-            # lxml does not support http references
-            if isinstance(source, str) and (source.startswith("http://") or source.startswith("https://")):
-                with urllib.request.urlopen(source) as c:
-                    tree = lxml.html.parse(c)
-            else:
-                tree = lxml.html.parse(source)
-    
-            # lxml sax has zero support for DocumentLocator
-            if isinstance(source, str):
-                handler.setDocumentLocator(SourceLocator(source))
-            elif getattr(source, "url", None):
-                handler.setDocumentLocator(SourceLocator(source.url))
-            elif getattr(source, "name", None):
-                handler.setDocumentLocator(SourceLocator(source.name))
-            # unfortunately this returns a file:/ URL for filename sources,
-            # technically correct, but inconsistent with typical SAX.
-            # handler.setDocumentLocator(SourceLocator(tree.docinfo.URL))
-    
-            lxml.sax.saxify(tree, handler)
-
-def get_selenium_driver(
-    browser: Literal["chrome", "firefox"] = "chrome",
-    binary_location: Optional[str] = None,
-    executable_path: Optional[str] = None,
-    arguments: list[str] = ["--headless", "--no-sandbox"]
-) -> "WebDriver": 
-    '''
-    Create and return a WebDriver instance based on the specified browser.
-    for chrome, if 'arguments' contains "--headless", then "--no-sandbox" is also recommended.
-    Args:
-        
-    Raises:
-        ValueError: If an invalid browser is specified.
-    Returns:
-        WebDriver: A Chrome|Firefox instance for the specified browser.
-    '''
-    
-    from selenium.webdriver.remote.webdriver import WebDriver
-    from selenium.webdriver.common.service import Service
-    from selenium.webdriver.common.options import ArgOptions
-    drivercls: type[WebDriver]
-    servicecls: type[Service]
-    optionscls: type[ArgOptions]
-    
-    match browser.lower():
-        case "chrome":
-            from selenium.webdriver import Chrome
-            from selenium.webdriver.chrome.service import Service as ChromeService
-            from selenium.webdriver.chrome.options import Options as ChromeOptions
-            drivercls, servicecls, optionscls =  Chrome, ChromeService, ChromeOptions
-        case "firefox":
-            from selenium.webdriver import Firefox
-            from selenium.webdriver.firefox.service import Service as FirefoxService
-            from selenium.webdriver.firefox.options import Options as FirefoxOptions
-            drivercls, servicecls, optionscls = Firefox, FirefosService, FirefoxOptions
-        case _:
-            raise ValueError(f"Invalid browser ({browser}) specified. Use 'chrome' or 'firefox'.")
-    
-    options: ArgOptions = optionscls()
-    if binary_location:
-        options.binary_location = binary_location
-    for arg in arguments:
-        options.add_argument(arg)
-    
-    if executable_path:
-        return drivercls(
-            options=options,
-            service=servicecls(executable_path=executable_path))
-    else:
-        return drivercls(
-            options=options)
 
 class HtmlChunker:
     """
@@ -208,72 +100,72 @@ class HtmlChunker:
         filename_or_stream: "can be a filename or a file object"
         (https://docs.python.org/3/library/xml.sax.html)
     """
-
+    
+    
+    
+    
     def __init__(
         self,
+        parse_render: Literal["xml", "lxml", "selenium"] = "lxml",
         header_tags: Optional[Collection[str]] = None,
-        chunk_tags: Optional[Collection[str]] = None
+        chunk_tags: Optional[Collection[str]] = None,
     ):
-
-        if chunk_tags is None:
-            chunk_tags = DEFAULT_CHUNK_TAGS.copy()
-        elif not all(x in ALL_HEADER_TAGS for x in header_tags):
-            raise Exception(f"invalid header_tags: {header_tags}")
-
+        
+        self.parse_render: Literal["xml", "lxml", "selenium"] = parse_render.lower()
+        
         if header_tags is None:
             header_tags = ALL_HEADER_TAGS.copy()
-        elif any(x in ALL_HEADER_TAGS for x in chunk_tags):
-            raise Exception(f"invalid chunk_tags: {chunk_tags}")
-
+        elif not all(x in ALL_HEADER_TAGS for x in header_tags):
+            raise Exception(f"invalid header_tags: {header_tags}")
         self.header_tags: Collection[str] = header_tags
+        
+        if chunk_tags is None:
+            chunk_tags = DEFAULT_CHUNK_TAGS.copy()
+        if any(x in ALL_HEADER_TAGS for x in chunk_tags):
+            raise Exception(f"invalid chunk_tags: {chunk_tags}")
         self.chunk_tags: Collection[str] = chunk_tags
 
     def parse_chunk_sequence(
         self,
         sources: Iterable[any],
-        strict: bool = DEFAULT_STRICT,
-        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ) -> Generator[dict[str, any], None, None]:
-
-        for q in self.parse_queue_sequence(sources, strict, selenium_browser):
+        for q in self._parse_queue_sequence(sources):
             yield from q
-
-    def parse_queue_sequence(
+    def _parse_queue_sequence(
         self,
         sources: Iterable[any],
-        strict: bool = DEFAULT_STRICT,
-        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ) -> Generator[deque[dict[str, any]], None, None]:
-
         for source in sources:
-            yield self.parse_queue(source, strict, selenium_browser)
+            yield self.parse_queue(source)
 
     def parse_queue(
         self,
         source: any,
-        strict: bool = DEFAULT_STRICT,
-        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ) -> deque[dict[str, any], None, None]:
 
         the_q = deque()
-        self.parse_events([source], the_q.append, strict, selenium_browser)
+        self.parse_events([source], the_q.append)
         return the_q
-
+    
     def parse_events(
         self,
         sources: Iterable[any],
         callback: Callable[[dict[str, any]], any],
-        strict: bool = DEFAULT_STRICT,
-        selenium_browser: Literal[None, "chrome", "firefox"] = None,
     ):
 
         handler = self._new_handler(callback)
-        for source in sources:
-            sax_parse_html(
-                source,
-                handler,
-                strict,
-                selenium_browser)
+        
+        match self.parse_render:
+            case "xml":
+                for source in sources:
+                    parse_html.xml_get_sax(source, handler)
+            case "lxml":
+                for source in sources:
+                    parse_html.lxml_get_sax(source, handler)
+            case "selenium":
+                parse_html.selenium_get_sax(sources, handler)
+            case _:
+                raise ValueError(f"Invalid parse_render ({self.parse_render}) specified. Use 'xml', 'lxml' or 'selenium'.")
 
     # Helper Methods:
 
@@ -286,14 +178,6 @@ class HtmlChunker:
             callback,
             self.header_tags,
             self.chunk_tags)
-
-# TODO is there a better way to make a compliant Locator for these one-off cases? (e.g. anonymous-subclass-instances)
-class SourceLocator(xml.sax.xmlreader.Locator):
-    def __init__(self, source):
-        self.source = source
-
-    def getSystemId(self):
-        return self.source
 
 
 class ElemPos:
@@ -626,11 +510,15 @@ if __name__ == "__main__":
     import sys
 
     main_verbose = False
-    main_strict = False
+    
+    # main_parse_render = "xml"
+    main_parse_render = "lxml"
+    # main_parse_render = "selenium"
+    
     # if no sources are specified by command-line args, use defaults
     main_sources = sys.argv[1:] if 1 < len(sys.argv) else [
         "test1basic.html",
-        # "https://presidiovantage.com/about.xhtml",
+        # "https://presidiovantage.com/html_chunker/test1basic.html",
         # "https://en.wikipedia.org/wiki/Kurt_G%C3%B6del",
         # "https://plato.stanford.edu/entries/goedel/",
     ]
@@ -641,5 +529,5 @@ if __name__ == "__main__":
     else:
         main_callback = print
 
-    chunker = HtmlChunker()
-    chunker.parse_events(main_sources, main_callback, main_strict)
+    chunker = HtmlChunker(main_parse_render)
+    chunker.parse_events(main_sources, main_callback)
