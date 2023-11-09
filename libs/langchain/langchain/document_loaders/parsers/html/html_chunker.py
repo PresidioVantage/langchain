@@ -64,7 +64,7 @@ import pathlib
 from os.path import abspath
 from io import StringIO
 
-import parse_html
+from langchain.document_loaders.parsers.html import parse_html
 
 
 LOG = logging.getLogger(__name__)

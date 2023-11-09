@@ -5,7 +5,7 @@ methods are library-specific, and the libraries are imported optionally/lazily.
 most libraries are light-weight (to initialize), and methods are single-source.
 selenium is heavy-weight, so the methods take a sequence of sources.
 """
-
+import urllib
 from typing import Optional, Callable, Literal
 from collections.abc import Iterator
 from io import StringIO
@@ -25,12 +25,12 @@ def xml_get_sax(
     # xml.sax sets null url for open HttpConnections
     # (it works fine for String paths/urls and FileIO)
     if not isinstance(source, str) and getattr(source, "url", None):
-        handler.setDocumentLocator(SourceLocator(source.url))
+        handler.setDocumentLocator(SystemIdLocator(source.url))
     
     xml.sax.parse(source, handler)
 
 
-## LXML ##
+# **LXML**
 
 def lxml_get_sax (
     source: any,
@@ -78,20 +78,20 @@ def _lxml_get_etree (
     return tree
 
 
-## Selenium ##
+# **Selenium**
 
-def selenium_get_sax (
+def selenium_get_sax(
     sources: Iterator[str],
     handler: ContentHandler,
     browser: Literal["chrome", "firefox"] = "chrome",
-    args: list[str] = ["--headless", "--no-sandbox"],
+    args: tuple[str] = ("--headless", "--no-sandbox"),
     # saxparser: Callable[[any, ContentHandler], None] = lxml_get_sax,
     # saxparser: Literal[lxml_get_sax, xml_get_sax] = lxml_get_sax,
 ):
     """
     requires selenium and lxml
     """
-    from langchain.document_loaders.parser.html.render_selenium import selenium_get_html_sequence
+    from langchain.document_loaders.parsers.html.render_selenium import selenium_get_html_sequence
     
     for source, html in selenium_get_html_sequence(sources, browser, args):
         handler.setDocumentLocator(SystemIdLocator(source))
@@ -100,7 +100,7 @@ def selenium_get_sax (
         # saxparser(rendered_source, handler)
 
 
-## Utilities ##
+# **Utilities**
 
 def get_system_id (
     source: any

@@ -1,9 +1,12 @@
-"""Loader that uses Selenium to load a page, then uses unstructured to load the html.
 """
+Selenium-driven loaders for structured and unstructured web content.
+"""
+
 import logging
 from typing import TYPE_CHECKING, List, Literal, Optional, Union
+from langchain.docstore.document import Document
+from langchain.document_loaders.base import BaseLoader
 
-"""Load a list of URLs using Selenium and unstructured."""
 try:
     import selenium  # noqa:F401
 except ImportError:
@@ -15,17 +18,15 @@ except ImportError:
 if TYPE_CHECKING:
     from selenium.webdriver import Chrome, Firefox
 
-from langchain.docstore.document import Document
-from langchain.document_loaders.base import BaseLoader
-
 logger = logging.getLogger(__name__)
 
+
 def get_selenium_driver(
-    browser: Literal["chrome", "firefox"] = "chrome",
-    binary_location: Optional[str] = None,
-    executable_path: Optional[str] = None,
-    headless: bool = True,
-    arguments: List[str] = []
+        browser: Literal["chrome", "firefox"] = "chrome",
+        binary_location: Optional[str] = None,
+        executable_path: Optional[str] = None,
+        headless: bool = True,
+        arguments: List[str] = []
 ) -> Union["Chrome", "Firefox"]:
     """Create and return a WebDriver instance based on the specified browser.
 
@@ -79,6 +80,7 @@ def get_selenium_driver(
     else:
         raise ValueError("Invalid browser specified. Use 'chrome' or 'firefox'.")
 
+
 class SeleniumURLLoader(BaseLoader):
     """Load `HTML` pages with `Selenium` and parse with `Unstructured`.
 
@@ -95,14 +97,14 @@ class SeleniumURLLoader(BaseLoader):
     """
 
     def __init__(
-        self,
-        urls: List[str],
-        continue_on_failure: bool = True,
-        browser: Literal["chrome", "firefox"] = "chrome",
-        binary_location: Optional[str] = None,
-        executable_path: Optional[str] = None,
-        headless: bool = True,
-        arguments: List[str] = [],
+            self,
+            urls: List[str],
+            continue_on_failure: bool = True,
+            browser: Literal["chrome", "firefox"] = "chrome",
+            binary_location: Optional[str] = None,
+            executable_path: Optional[str] = None,
+            headless: bool = True,
+            arguments: List[str] = [],
     ):
         try:
             import unstructured  # noqa:F401
@@ -151,17 +153,17 @@ class SeleniumURLLoader(BaseLoader):
             metadata["title"] = title
         try:
             if description := driver.find_element(
-                By.XPATH, '//meta[@name="description"]'
+                    By.XPATH, '//meta[@name="description"]'
             ):
                 metadata["description"] = (
-                    description.get_attribute("content") or "No description found."
+                        description.get_attribute("content") or "No description found."
                 )
         except NoSuchElementException:
             pass
         try:
             if html_tag := driver.find_element(By.TAG_NAME, "html"):
                 metadata["language"] = (
-                    html_tag.get_attribute("lang") or "No language found."
+                        html_tag.get_attribute("lang") or "No language found."
                 )
         except NoSuchElementException:
             pass

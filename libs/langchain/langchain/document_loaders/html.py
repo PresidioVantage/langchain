@@ -2,14 +2,13 @@ from io import StringIO
 from typing import (
     List,
     Dict,
-    Iterable, 
+    Iterable,
     Any,
     Iterator,
-    Collection,
     Generator,
-    Sequence,
     Optional,
     Literal,
+    Union,
 )
 
 from langchain.schema import Document, BaseDocumentTransformer
@@ -46,7 +45,6 @@ class UnstructuredHTMLLoader(UnstructuredFileLoader):
         from unstructured.partition.html import partition_html
 
         return partition_html(filename=self.file_path, **self.unstructured_kwargs)
-
 
 
 class HeaderChunkedHTMLLoader(BaseLoader):
@@ -104,7 +102,6 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         """
         from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
 
-
         if not sources:
             raise Exception(f"HeaderChunkedHTMLLoader(sources={sources})")
 
@@ -112,16 +109,25 @@ class HeaderChunkedHTMLLoader(BaseLoader):
 
         self.header_mapping: dict[str, str] = self._DEFAULT_HEADER_MAPPING.copy() \
             if header_mapping is None else header_mapping
+        if len(self.header_mapping) != len(set(self.header_mapping.values())):
+            raise Exception(f"Header mapping must have unique values: {self.header_mapping}")
+
+        # create set of all "h" tags from the mapping
         self.header_capture: set[str] = {
-            x[-2:] for x in header_mapping if x[-2:] in [
+            x[-2:] for x in self.header_mapping if x[-2:] in [
                 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
         
         self.return_each_element: bool = return_each_element
         self.return_urls: bool = return_urls
         self.use_selenium: bool = use_selenium
 
+        parse_render: Literal["lxml", "selenium"]
+        if use_selenium:
+            parse_render = "selenium"
+        else:
+            parse_render = "lxml"
         self.chunker: HtmlChunker = HtmlChunker(
-            "selenium" if use_selenium else "lxml",
+            parse_render,
             self.header_capture)
 
     # TODO remove this when it is implemented in abstract parent class
@@ -131,7 +137,7 @@ class HeaderChunkedHTMLLoader(BaseLoader):
     def lazy_load(self) -> Iterator[Document]:
         yield from self._aggregate(
             self._docs_from_chunks(
-                self.chunker.parse_chunk_sequence(sources)))
+                self.chunker.parse_chunk_sequence(self.sources)))
 
     # Helper Functions
 
@@ -141,7 +147,7 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         else:
             return DocumentMetadataCleaver().transform_documents(documents)
 
-    def _docs_from_chunks(self, chunks: Collection[dict[str, any]]) -> Generator[Document, None, None]:
+    def _docs_from_chunks(self, chunks: Iterable[dict[str, any]]) -> Generator[Document, None, None]:
         for chunk in chunks:
             yield self._doc_from_chunk(chunk)
 
@@ -150,8 +156,7 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         if self.return_urls:
             meta["url"] = chunk["uri"]
         for key, val in chunk["meta"].items():
-            mappedKey = self.header_mapping[key, None]
-            meta[key if mappedKey is None else mappedKey] = val
+            meta[self.header_mapping.get(key, key)] = val
         return Document(
             page_content=chunk["text"],
             metadata=meta
