@@ -145,7 +145,7 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         self.return_urls: bool = return_urls
         self.use_selenium: bool = use_selenium
 
-        self._chunker: HtmlChunker = None
+        self._chunker: Optional[HtmlChunker] = None
     def __enter__(self) -> "HeaderChunkedHTMLLoader":
         from html_header_chunking.chunker import get_chunker
         self._chunker = get_chunker(
@@ -196,6 +196,10 @@ class HeaderChunkedHTMLLoader(BaseLoader):
 
 
 class HeaderChunkedHTMLLoaderFromString(HeaderChunkedHTMLLoader):
+    """
+    This subclass parses html strings directly, not source references.
+    n.b. This approach does not support selenium.
+    """
     def __init__(
         self,
         sources: Iterable[str],
