@@ -51,6 +51,10 @@ class HeaderChunkedHTMLLoader(BaseLoader):
     """
     Splitting HTML files based on specified headers.
     Requires lxml package.
+    Requires html_header_chunking package.
+    Requires selenium if 'use_selenium' is True.
+    
+    Any instance must be used within a context manager ('with' statement).
     """
 
     # This default header mapping "flattens" metadata when it finds higher-level headers "deeper" than lower-level headers
@@ -100,7 +104,27 @@ class HeaderChunkedHTMLLoader(BaseLoader):
                 'False' to combine all adjacent chunks with identical metadata.
             return_urls: whether to include a source-url metadata in each returned Document
         """
-        from langchain.document_loaders.parsers.html.html_chunker import HtmlChunker
+        
+        # some fast-failing, delayed/optional imports for the config
+        try:
+            import lxml
+        except ImportError as e:
+            raise ImportError(
+                "Unable to import lxml, please install with `pip install lxml`."
+            ) from e
+        if use_selenium:
+            try:
+                import selenium
+            except ImportError as e:
+                raise ImportError(
+                    "Unable to import selenium, please install with `pip install selenium`."
+                ) from e
+        try:
+            from html_header_chunking.chunker import HtmlChunker
+        except ImportError as e:
+            raise ImportError(
+                "Unable to import html_header_chunking, please install with `pip install html_header_chunking`."
+            ) from e
 
         if not sources:
             raise Exception(f"HeaderChunkedHTMLLoader(sources={sources})")
@@ -121,15 +145,23 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         self.return_urls: bool = return_urls
         self.use_selenium: bool = use_selenium
 
-        parse_render: Literal["lxml", "selenium"]
-        if use_selenium:
-            parse_render = "selenium"
-        else:
-            parse_render = "lxml"
-        self.chunker: HtmlChunker = HtmlChunker(
-            parse_render,
+        self._chunker: HtmlChunker = None
+    def __enter__(self) -> "HeaderChunkedHTMLLoader":
+        from html_header_chunking.chunker import get_chunker
+        self._chunker = get_chunker(
+            "selenium" if self.use_selenium else "lxml",
             self.header_capture)
-
+        self.get_chunker().__enter__()
+        return self
+    def __exit__(self, *args):
+        self.get_chunker().__exit__()
+        self._chunker = None
+    
+    def get_chunker(self):
+        if self._chunker is None:
+            raise Exception("HeaderChunkedHTMLLoader context-manager not open. use 'with' statement.")
+        return self._chunker
+    
     # TODO remove this when it is implemented in abstract parent class
     def load(self) -> List[Document]:
         return list(self.lazy_load())
@@ -137,7 +169,7 @@ class HeaderChunkedHTMLLoader(BaseLoader):
     def lazy_load(self) -> Iterator[Document]:
         yield from self._aggregate(
             self._docs_from_chunks(
-                self.chunker.parse_chunk_sequence(self.sources)))
+                self.get_chunker().parse_chunk_sequence(self.sources)))
 
     # Helper Functions
 
@@ -170,7 +202,8 @@ class HeaderChunkedHTMLLoaderFromString(HeaderChunkedHTMLLoader):
         header_mapping: Dict[str, Any] = None,
         return_each_element: bool = False,
     ):
-        """Args:
+        """
+        Args:
             sources: a sequence of html-text strings
         """
 
@@ -184,7 +217,7 @@ class HeaderChunkedHTMLLoaderFromString(HeaderChunkedHTMLLoader):
 
 class DocumentMetadataCleaver(BaseDocumentTransformer):
     """
-    This "reverse TextSplitter" combines adjacent documents if they have the same metadata.
+    This "reverse TextSplitter" combines adjacent Documents if they have the same metadata.
     """
 
     # XXX TODO 2023-11-08 n.b. the parent abstract method signature is :Sequence->Sequence
