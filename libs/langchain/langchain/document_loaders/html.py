@@ -49,8 +49,8 @@ class UnstructuredHTMLLoader(UnstructuredFileLoader):
 class HeaderChunkedHTMLLoader(BaseLoader):
     """
     Splitting HTML files based on specified headers.
-    Requires lxml package.
-    Requires html_header_chunking package.
+
+    Requires html-header-chunking.
     Requires selenium if 'use_selenium' is True.
     
     Any instance must be used within a context manager ('with' statement), e.g.
@@ -108,10 +108,10 @@ class HeaderChunkedHTMLLoader(BaseLoader):
 
         # some fast-failing, delayed/optional imports for the config
         try:
-            import lxml
+            from html_header_chunking.chunker import HtmlChunker
         except ImportError as e:
             raise ImportError(
-                "Unable to import lxml, please install with `pip install lxml`."
+                "Unable to import html-header-chunking, please install with `pip install html-header-chunking`."
             ) from e
         if use_selenium:
             try:
@@ -120,12 +120,6 @@ class HeaderChunkedHTMLLoader(BaseLoader):
                 raise ImportError(
                     "Unable to import selenium, please install with `pip install selenium`."
                 ) from e
-        try:
-            from html_header_chunking.chunker import HtmlChunker
-        except ImportError as e:
-            raise ImportError(
-                "Unable to import html_header_chunking, please install with `pip install html_header_chunking`."
-            ) from e
 
         if not sources:
             raise Exception(f"HeaderChunkedHTMLLoader(sources={sources})")
