@@ -1,84 +1,15 @@
+"""Loader that uses Selenium to load a page, then uses unstructured to load the html.
 """
-Selenium-driven loaders for structured and unstructured web content.
-"""
-
 import logging
 from typing import TYPE_CHECKING, List, Literal, Optional, Union
-from langchain.docstore.document import Document
-from langchain.document_loaders.base import BaseLoader
-
-try:
-    import selenium  # noqa:F401
-except ImportError:
-    raise ImportError(
-        "selenium package not found, please install it with "
-        "`pip install selenium`"
-    )
 
 if TYPE_CHECKING:
     from selenium.webdriver import Chrome, Firefox
 
+from langchain.docstore.document import Document
+from langchain.document_loaders.base import BaseLoader
+
 logger = logging.getLogger(__name__)
-
-
-def get_selenium_driver(
-        browser: Literal["chrome", "firefox"] = "chrome",
-        binary_location: Optional[str] = None,
-        executable_path: Optional[str] = None,
-        headless: bool = True,
-        arguments: List[str] = []
-) -> Union["Chrome", "Firefox"]:
-    """Create and return a WebDriver instance based on the specified browser.
-
-    Raises:
-        ValueError: If an invalid browser is specified.
-
-    Returns:
-        Union[Chrome, Firefox]: A WebDriver instance for the specified browser.
-    """
-    if browser.lower() == "chrome":
-        from selenium.webdriver import Chrome
-        from selenium.webdriver.chrome.options import Options as ChromeOptions
-        from selenium.webdriver.chrome.service import Service
-
-        chrome_options = ChromeOptions()
-
-        for arg in arguments:
-            chrome_options.add_argument(arg)
-
-        if headless:
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-        if binary_location is not None:
-            chrome_options.binary_location = binary_location
-        if executable_path is None:
-            return Chrome(options=chrome_options)
-        return Chrome(
-            options=chrome_options,
-            service=Service(executable_path=executable_path),
-        )
-    elif browser.lower() == "firefox":
-        from selenium.webdriver import Firefox
-        from selenium.webdriver.firefox.options import Options as FirefoxOptions
-        from selenium.webdriver.firefox.service import Service
-
-        firefox_options = FirefoxOptions()
-
-        for arg in arguments:
-            firefox_options.add_argument(arg)
-
-        if headless:
-            firefox_options.add_argument("--headless")
-        if binary_location is not None:
-            firefox_options.binary_location = binary_location
-        if executable_path is None:
-            return Firefox(options=firefox_options)
-        return Firefox(
-            options=firefox_options,
-            service=Service(executable_path=executable_path),
-        )
-    else:
-        raise ValueError("Invalid browser specified. Use 'chrome' or 'firefox'.")
 
 
 class SeleniumURLLoader(BaseLoader):
@@ -97,15 +28,24 @@ class SeleniumURLLoader(BaseLoader):
     """
 
     def __init__(
-            self,
-            urls: List[str],
-            continue_on_failure: bool = True,
-            browser: Literal["chrome", "firefox"] = "chrome",
-            binary_location: Optional[str] = None,
-            executable_path: Optional[str] = None,
-            headless: bool = True,
-            arguments: List[str] = [],
+        self,
+        urls: List[str],
+        continue_on_failure: bool = True,
+        browser: Literal["chrome", "firefox"] = "chrome",
+        binary_location: Optional[str] = None,
+        executable_path: Optional[str] = None,
+        headless: bool = True,
+        arguments: List[str] = [],
     ):
+        """Load a list of URLs using Selenium and unstructured."""
+        try:
+            import selenium  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "selenium package not found, please install it with "
+                "`pip install selenium`"
+            )
+
         try:
             import unstructured  # noqa:F401
         except ImportError:
@@ -131,12 +71,49 @@ class SeleniumURLLoader(BaseLoader):
         Returns:
             Union[Chrome, Firefox]: A WebDriver instance for the specified browser.
         """
-        return get_selenium_driver(
-            self.browser,
-            self.binary_location,
-            self.executable_path,
-            self.headless,
-            self.arguments)
+        if self.browser.lower() == "chrome":
+            from selenium.webdriver import Chrome
+            from selenium.webdriver.chrome.options import Options as ChromeOptions
+            from selenium.webdriver.chrome.service import Service
+
+            chrome_options = ChromeOptions()
+
+            for arg in self.arguments:
+                chrome_options.add_argument(arg)
+
+            if self.headless:
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--no-sandbox")
+            if self.binary_location is not None:
+                chrome_options.binary_location = self.binary_location
+            if self.executable_path is None:
+                return Chrome(options=chrome_options)
+            return Chrome(
+                options=chrome_options,
+                service=Service(executable_path=self.executable_path),
+            )
+        elif self.browser.lower() == "firefox":
+            from selenium.webdriver import Firefox
+            from selenium.webdriver.firefox.options import Options as FirefoxOptions
+            from selenium.webdriver.firefox.service import Service
+
+            firefox_options = FirefoxOptions()
+
+            for arg in self.arguments:
+                firefox_options.add_argument(arg)
+
+            if self.headless:
+                firefox_options.add_argument("--headless")
+            if self.binary_location is not None:
+                firefox_options.binary_location = self.binary_location
+            if self.executable_path is None:
+                return Firefox(options=firefox_options)
+            return Firefox(
+                options=firefox_options,
+                service=Service(executable_path=self.executable_path),
+            )
+        else:
+            raise ValueError("Invalid browser specified. Use 'chrome' or 'firefox'.")
 
     def _build_metadata(self, url: str, driver: Union["Chrome", "Firefox"]) -> dict:
         from selenium.common.exceptions import NoSuchElementException
@@ -153,17 +130,17 @@ class SeleniumURLLoader(BaseLoader):
             metadata["title"] = title
         try:
             if description := driver.find_element(
-                    By.XPATH, '//meta[@name="description"]'
+                By.XPATH, '//meta[@name="description"]'
             ):
                 metadata["description"] = (
-                        description.get_attribute("content") or "No description found."
+                    description.get_attribute("content") or "No description found."
                 )
         except NoSuchElementException:
             pass
         try:
             if html_tag := driver.find_element(By.TAG_NAME, "html"):
                 metadata["language"] = (
-                        html_tag.get_attribute("lang") or "No language found."
+                    html_tag.get_attribute("lang") or "No language found."
                 )
         except NoSuchElementException:
             pass

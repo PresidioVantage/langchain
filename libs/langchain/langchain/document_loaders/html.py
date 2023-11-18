@@ -7,8 +7,7 @@ from typing import (
     Iterator,
     Generator,
     Optional,
-    Literal,
-    Union,
+    Union, Literal,
 )
 
 from langchain.schema import Document, BaseDocumentTransformer
@@ -54,7 +53,9 @@ class HeaderChunkedHTMLLoader(BaseLoader):
     Requires html_header_chunking package.
     Requires selenium if 'use_selenium' is True.
     
-    Any instance must be used within a context manager ('with' statement).
+    Any instance must be used within a context manager ('with' statement), e.g.
+        with HeaderChunkedHTMLLoader(sources) as html_splitter:
+            html_header_splits = html_splitter.load()
     """
 
     # This default header mapping "flattens" metadata when it finds higher-level headers "deeper" than lower-level headers
@@ -62,20 +63,20 @@ class HeaderChunkedHTMLLoader(BaseLoader):
     # lower-level header (e.g. h4).
     _DEFAULT_HEADER_MAPPING: Dict[str, str] = {
         "h1": "article_main_heading_h1",
-    
+
         "h2": "article_subsection_heading_h2",
         "h3": "article_subsection_heading_h3",
         "h4": "article_subsection_heading_h4",
         "h5": "article_subsection_heading_h5",
         "h6": "article_subsection_heading_h6",
-    
+
         "D2 h1": "sub_article_subsection_heading_h07",
         "D2 h2": "sub_article_subsection_heading_h08",
         "D2 h3": "sub_article_subsection_heading_h09",
         "D2 h4": "sub_article_subsection_heading_h10",
         "D2 h5": "sub_article_subsection_heading_h11",
         "D2 h6": "sub_article_subsection_heading_h12",
-    
+
         "D3 h1": "sub_sub_article_subsection_heading_h13",
         "D3 h2": "sub_sub_article_subsection_heading_h14",
         "D3 h3": "sub_sub_article_subsection_heading_h15",
@@ -85,12 +86,12 @@ class HeaderChunkedHTMLLoader(BaseLoader):
     }
 
     def __init__(
-        self,
-        sources: Union[any, Iterable[any]],
-        header_mapping: Dict[str, Any] = None,
-        return_each_element: bool = False,
-        return_urls: bool = True,
-        use_selenium: bool = False,
+            self,
+            sources: Union[any, Iterable[any]],
+            header_mapping: Dict[str, Any] = None,
+            return_each_element: bool = False,
+            return_urls: bool = True,
+            use_selenium: bool = False,
     ):
         """Create a new HeaderChunkedHTMLLoader.
         
@@ -104,7 +105,7 @@ class HeaderChunkedHTMLLoader(BaseLoader):
                 'False' to combine all adjacent chunks with identical metadata.
             return_urls: whether to include a source-url metadata in each returned Document
         """
-        
+
         # some fast-failing, delayed/optional imports for the config
         try:
             import lxml
@@ -140,28 +141,35 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         self.header_capture: set[str] = {
             x[-2:] for x in self.header_mapping if x[-2:] in [
                 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']}
-        
+
         self.return_each_element: bool = return_each_element
         self.return_urls: bool = return_urls
         self.use_selenium: bool = use_selenium
 
         self._chunker: Optional[HtmlChunker] = None
+
     def __enter__(self) -> "HeaderChunkedHTMLLoader":
         from html_header_chunking.chunker import get_chunker
+        parse_render: Literal["xml", "lxml", "selenium"]
+        if self.use_selenium:
+            parse_render = "selenium"
+        else:
+            parse_render = "lxml"
         self._chunker = get_chunker(
-            "selenium" if self.use_selenium else "lxml",
+            parse_render,
             self.header_capture)
         self.get_chunker().__enter__()
         return self
+
     def __exit__(self, *args):
         self.get_chunker().__exit__()
         self._chunker = None
-    
+
     def get_chunker(self):
         if self._chunker is None:
             raise Exception("HeaderChunkedHTMLLoader context-manager not open. use 'with' statement.")
         return self._chunker
-    
+
     # TODO remove this when it is implemented in abstract parent class
     def load(self) -> List[Document]:
         return list(self.lazy_load())
@@ -195,41 +203,12 @@ class HeaderChunkedHTMLLoader(BaseLoader):
         )
 
 
-class HeaderChunkedHTMLLoaderFromString(HeaderChunkedHTMLLoader):
-    """
-    This subclass parses html strings directly, not source references.
-    n.b. This approach does not support selenium.
-    """
-    def __init__(
-        self,
-        sources: Iterable[str],
-        header_mapping: Dict[str, Any] = None,
-        return_each_element: bool = False,
-    ):
-        """
-        Args:
-            sources: a sequence of html-text strings
-        """
-
-        super().__init__(
-            (StringIO(source) for source in sources),
-            header_mapping,
-            return_each_element,
-            False,
-            False)
-
-
 class DocumentMetadataCleaver(BaseDocumentTransformer):
     """
     This "reverse TextSplitter" combines adjacent Documents if they have the same metadata.
     """
-
-    # XXX TODO 2023-11-08 n.b. the parent abstract method signature is :Sequence->Sequence
-    # that seems incorrect/inefficient, especially the return-type.
-    # does a list-comprehension resolve this efficiently?
-    # their example shows: return [stateful_documents[i] for i in sorted(included_idxs)]
     def transform_documents(
-        self, documents: Iterable[Document], **kwargs: Any
+            self, documents: Iterable[Document], **kwargs: Any
     ) -> Iterator[Document]:
 
         prior_doc: Optional[Document] = None
